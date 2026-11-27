@@ -8,6 +8,21 @@ A college feedback platform where students rate their faculty anonymously and ad
 
 ## Quick start
 
+### Easiest: double-click `start.bat` (Windows)
+
+Unzip the folder anywhere and double-click **`start.bat`**. It does everything:
+
+1. **Node.js:** uses Node.js 22.13+ if it's installed. Otherwise it downloads a private copy into `.runtime\` (about 30 MB, one time, no admin rights needed).
+2. **Packages:** installs them on the first run, or after an update.
+3. **Old data:** if you copied the old system's CSV files into `legacy-data\`, it imports them once.
+4. **Start:** starts the server and opens the browser. It also prints the **Network** address that other computers in the lab can use.
+
+Keep the window open while the system is in use, and close it to stop. On macOS or Linux, run `./start.sh`, which does the same.
+
+The first run needs internet (to download Node.js and packages). After that it starts offline in a few seconds. If Windows Firewall asks, click **Allow access** so students on other computers can connect.
+
+### Manual
+
 Requires **Node.js 22.13 or newer**. It uses the built-in `node:sqlite`, so there are no native modules to compile.
 
 ```bash

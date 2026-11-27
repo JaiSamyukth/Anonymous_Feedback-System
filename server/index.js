@@ -13,5 +13,8 @@ const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
   console.log(`Anonymous Faculty Feedback System running at http://localhost:${port}`);
   console.log(`  Student portal: http://localhost:${port}/`);
+  console.log(`  Faculty portal: http://localhost:${port}/faculty`);
   console.log(`  Admin portal:   http://localhost:${port}/admin`);
+  const lan = Object.values(require('node:os').networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal);
+  for (const i of lan) console.log(`  Network:        http://${i.address}:${port}/   (for other computers on the same network)`);
 });

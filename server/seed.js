@@ -91,8 +91,8 @@ function seedBase(db) {
     db.run("INSERT INTO admins(username, name, password_hash, role) VALUES('admin','System Administrator',?, 'super_admin')", hashPassword('admin123'));
   }
   const defaults = {
-    institution_name: 'Anonymous Faculty Feedback System',
-    institution_short: 'Feedback',
+    institution_name: 'V.S.B. Engineering College, Karur',
+    institution_short: 'VSBEC',
     require_verification: '1',
     allow_comments: '1',
     min_responses: '3',

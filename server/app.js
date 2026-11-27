@@ -14,7 +14,8 @@ const STUDENT_TOKEN_HOURS = 2;
 function createApp(db, { secureCookies = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 'loopback');
+  // Behind a hosting proxy (Render, nginx…) set TRUST_PROXY=1 so rate limits see real client IPs.
+  app.set('trust proxy', process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY : 'loopback');
   app.use(express.json({ limit: '1mb' }));
 
   // Basic security headers.

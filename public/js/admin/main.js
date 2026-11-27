@@ -4,6 +4,7 @@ import * as insights from './insights.js';
 import * as data from './data.js';
 import * as settings from './settings.js';
 import { visualize } from './visualize.js';
+import { classReport } from './classreport.js';
 
 const app = document.getElementById('app');
 
@@ -14,6 +15,7 @@ const NAV = [
   ['Feedback', [
     ['visualize', 'Visualize', 'grid'],
     ['reports', 'Reports', 'chart'],
+    ['class-report', 'Class report (PDF)', 'file'],
     ['responses', 'Responses', 'message'],
     ['completion', 'Completion', 'target'],
   ]],
@@ -38,6 +40,7 @@ const ROUTES = {
   dashboard: insights.dashboard,
   visualize,
   reports: insights.reports,
+  'class-report': classReport,
   'faculty-report': insights.facultyDetail,
   responses: insights.responses,
   completion: insights.completion,
@@ -182,7 +185,8 @@ function accountMenu() {
 let shellApi;
 async function route() {
   if (!state.me) return;
-  const [, key = 'dashboard', ...rest] = (location.hash || '#/dashboard').slice(1).split('/');
+  const [, rawKey = 'dashboard', ...rest] = (location.hash || '#/dashboard').slice(1).split('/');
+  const key = rawKey.split('?')[0];
   const view = ROUTES[key];
   if (!view) { location.hash = '#/dashboard'; return; }
   shellApi.setActive(key);

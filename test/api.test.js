@@ -31,10 +31,14 @@ async function call(path, { method = 'GET', body, headers = {}, cookie, raw } = 
   return { status: res.status, data, res };
 }
 
+const sessions = new Map(); // reuse sessions so the login rate limit isn't hit
 async function login(username, password) {
+  if (sessions.has(username)) return sessions.get(username);
   const r = await call('/api/auth/login', { method: 'POST', body: { username, password } });
   assert.equal(r.status, 200);
-  return r.res.headers.get('set-cookie').split(';')[0];
+  const cookie = r.res.headers.get('set-cookie').split(';')[0];
+  sessions.set(username, cookie);
+  return cookie;
 }
 
 const dobOf = (reg) => db.get('SELECT dob FROM students WHERE register_no = ?', reg.toUpperCase()).dob;
@@ -286,4 +290,94 @@ test('matrix endpoint returns per-question averages for each entity', async () =
     assert.ok(m.data.rows.length > 0, group);
     assert.equal(Object.keys(m.data.rows[0].questions).length, 10, group);
   }
+});
+
+test('official class report: JSON preview and PDF', async () => {
+  const cookie = await login('admin', 'admin123');
+  const d = await call('/api/admin/class-report?department_id=1&semester=5', { cookie });
+  assert.equal(d.status, 200);
+  assert.ok(d.data.rows.length > 0);
+  for (const r of d.data.rows) {
+    assert.match(r.reference, /^S\d+$/);
+    assert.equal(r.scores.length, 10);
+    assert.ok(r.total > 10 && r.total <= 100, 'total is out of 100');
+  }
+  assert.equal(d.data.signatures.join('|'), 'Class Advisor|HOD|Principal');
+  const pdf = await call('/api/admin/class-report?department_id=1&semester=5&format=pdf&download=1', { cookie, raw: true });
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+  assert.match(pdf.headers.get('content-disposition'), /^attachment/);
+  const buf = Buffer.from(await pdf.arrayBuffer());
+  assert.equal(buf.subarray(0, 5).toString(), '%PDF-');
+});
+
+test('add students by register-number range skips existing numbers', async () => {
+  const cookie = await login('admin', 'admin123');
+  const cls = db.get("SELECT c.id FROM classes c JOIN departments d ON d.id = c.department_id WHERE d.code = 'IT' LIMIT 1");
+  const r = await call('/api/admin/students/range', { method: 'POST', cookie, body: { class_id: cls.id, start: '922523244001', end: '922523244010' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.added, 10);
+  const again = await call('/api/admin/students/range', { method: 'POST', cookie, body: { class_id: cls.id, start: '922523244005', end: '922523244012' } });
+  assert.equal(again.data.added, 2);
+  assert.equal(again.data.skipped.length, 6);
+  assert.equal((await call('/api/admin/students/range', { method: 'POST', cookie, body: { class_id: cls.id, start: 'A1', end: 'B9' } })).status, 400);
+});
+
+test('register-number-only sign-in mode (old behaviour) can be enabled', async () => {
+  const cookie = await login('admin', 'admin123');
+  await call('/api/admin/settings', { method: 'PUT', cookie, body: { student_auth: 'regno' } });
+  assert.equal((await call('/api/public/config')).data.requireDob, false);
+  const ok = await call('/api/public/verify', { method: 'POST', body: { register_no: '922523244001' } });
+  assert.equal(ok.status, 200, 'student without a DOB can sign in');
+  await call('/api/admin/settings', { method: 'PUT', cookie, body: { student_auth: 'dob' } });
+  assert.equal((await call('/api/public/verify', { method: 'POST', body: { register_no: '922523244002' } })).status, 400);
+});
+
+test('whole-class mapping replaces the list and validates departments', async () => {
+  const cookie = await login('admin', 'admin123');
+  const cls = db.get("SELECT c.* FROM classes c JOIN departments d ON d.id = c.department_id WHERE d.code = 'AIDS' LIMIT 1");
+  const subs = db.all('SELECT id FROM subjects WHERE department_id = ? LIMIT 2', cls.department_id);
+  const fac = db.all("SELECT id FROM faculty WHERE status = 'active' LIMIT 2");
+  const r = await call(`/api/admin/classes/${cls.id}/mappings`, { method: 'PUT', cookie, body: { pairs: [{ subject_id: subs[0].id, faculty_id: fac[0].id }, { subject_id: subs[1].id, faculty_id: fac[1].id }] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(db.get('SELECT COUNT(*) n FROM mappings WHERE class_id = ?', cls.id).n, 2);
+  const otherSub = db.get('SELECT id FROM subjects WHERE department_id <> ? LIMIT 1', cls.department_id);
+  const bad = await call(`/api/admin/classes/${cls.id}/mappings`, { method: 'PUT', cookie, body: { pairs: [{ subject_id: otherSub.id, faculty_id: fac[0].id }] } });
+  assert.equal(bad.status, 400);
+});
+
+test('full backup downloads a SQLite database', async () => {
+  const cookie = await login('admin', 'admin123');
+  const r = await call('/api/admin/backup', { cookie, raw: true });
+  assert.equal(r.status, 200);
+  const buf = Buffer.from(await r.arrayBuffer());
+  assert.equal(buf.subarray(0, 15).toString(), 'SQLite format 3');
+  const hod = await login('hod.cse', 'hod123');
+  assert.equal((await call('/api/admin/backup', { cookie: hod })).status, 403);
+});
+
+test('legacy CSV import brings old data across without register numbers on ratings', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { importLegacy } = require('../server/import-legacy');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-'));
+  fs.writeFileSync(path.join(dir, 'departments.csv'), 'Department\r\nComputer Science and Business Systems  \r\nMechanical Engineering\r\n');
+  fs.writeFileSync(path.join(dir, 'staffs.csv'), 'Staff\r\nDr.D.Anandhan  \r\nKarthikeyan\r\n');
+  fs.writeFileSync(path.join(dir, 'subjects.csv'), 'Subject\r\nAlgorithms\r\n');
+  fs.writeFileSync(path.join(dir, 'students.csv'), 'registerno,department,semester\n922599999001,Computer Science and Business Systems,4\n922599999002,Computer Science and Business Systems,4\n');
+  fs.writeFileSync(path.join(dir, 'admin_mapping.csv'), 'department,semester,staff,subject\nComputer Science and Business Systems,Semester 4,Dr.D.Anandhan,Algorithms\n');
+  fs.writeFileSync(path.join(dir, 'ratings.csv'), 'registerno,department,semester,staff,subject,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,average\nAbCdEfGhIjKlMnOpQrStUvWxYz012345,Computer Science and Business Systems,4,Dr.D.Anandhan,Algorithms,8,9,7,8,9,8,7,9,8,8,8.10\n');
+  const before = db.get('SELECT COUNT(*) n FROM departments').n;
+  const st = importLegacy(db, dir, () => {});
+  assert.equal(db.get("SELECT COUNT(*) n FROM departments WHERE code <> 'GEN'").n, before, 'department names match existing ones (incl. non-breaking spaces)');
+  assert.ok(db.get("SELECT 1 FROM faculty f JOIN departments d ON d.id = f.department_id WHERE f.name = 'Karthikeyan' AND d.code = 'GEN'"), 'unmapped staff go to General');
+  assert.equal(st.students, 2);
+  assert.equal(st.mappings, 1);
+  assert.equal(st.feedback, 1);
+  const fb = db.get("SELECT f.* FROM feedback f JOIN cycles y ON y.id = f.cycle_id WHERE y.name LIKE 'Legacy%'");
+  assert.equal(fb.average, 8.1);
+  assert.ok(!JSON.stringify(db.all('SELECT * FROM feedback')).includes('AbCdEfGh'), 'old hashed register number is not stored');
+  const again = importLegacy(db, dir, () => {});
+  assert.equal(again.students + again.faculty + again.subjects + again.mappings, 0, 'idempotent');
 });

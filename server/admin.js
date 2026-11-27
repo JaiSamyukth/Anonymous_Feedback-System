@@ -5,6 +5,10 @@ const { HttpError, classLabel, str, int } = require('./util');
 const reports = require('./reports');
 const importer = require('./importer');
 const exporter = require('./exporter');
+const classreport = require('./classreport');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 /**
  * Entity definitions for generic CRUD.
@@ -248,6 +252,11 @@ module.exports = function adminRouter(ctx) {
         require_verification: db.getSetting('require_verification') === '1',
         allow_comments: db.getSetting('allow_comments') === '1',
         min_responses: Number(db.getSetting('min_responses', '3')),
+        student_auth: db.getSetting('student_auth', 'dob'),
+        report_title: db.getSetting('report_title', ''),
+        report_subtitle: db.getSetting('report_subtitle', ''),
+        report_footer: db.getSetting('report_footer', ''),
+        report_signatures: db.getSetting('report_signatures', ''),
       },
     });
   });
@@ -408,6 +417,13 @@ module.exports = function adminRouter(ctx) {
     if (b.institution_short !== undefined) db.setSetting('institution_short', str(b.institution_short).slice(0, 20));
     if (b.require_verification !== undefined) db.setSetting('require_verification', b.require_verification ? '1' : '0');
     if (b.allow_comments !== undefined) db.setSetting('allow_comments', b.allow_comments ? '1' : '0');
+    if (b.student_auth !== undefined) {
+      if (!['dob', 'regno'].includes(b.student_auth)) throw new HttpError(400, 'Invalid student sign-in method.');
+      db.setSetting('student_auth', b.student_auth);
+    }
+    for (const k of ['report_title', 'report_subtitle', 'report_footer', 'report_signatures']) {
+      if (b[k] !== undefined) db.setSetting(k, str(b[k]).slice(0, 300));
+    }
     if (b.min_responses !== undefined) {
       const n = int(b.min_responses, { min: 1, max: 50 });
       if (!n) throw new HttpError(400, 'Low-sample threshold must be between 1 and 50.');
@@ -432,6 +448,92 @@ module.exports = function adminRouter(ctx) {
 
   r.get('/dashboard', (req, res) => res.json(reports.dashboard(db, filtersOf(req))));
   r.get('/report', (req, res) => res.json(reports.grouped(db, filtersOf(req), str(req.query.group) || 'faculty')));
+  // Official class report in the institution's printed format (JSON preview or PDF).
+  r.get('/class-report', async (req, res) => {
+    const f = filtersOf(req);
+    const data = classreport.classReportData(db, f);
+    if (req.query.format !== 'pdf') return res.json(data);
+    const pdf = await classreport.buildPdf(data);
+    const name = `feedback-report-${data.departmentCode || 'all'}-sem-${data.semester}${f.section ? '-' + f.section : ''}.pdf`.replace(/\s+/g, '-');
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${name}"` });
+    res.send(pdf);
+  });
+
+  // Full database backup (the new equivalent of the old "archive" button).
+  r.get('/backup', (req, res) => {
+    requireSuper(req);
+    const tmp = path.join(os.tmpdir(), `afs-backup-${process.pid}-${Date.now()}.db`);
+    db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+    res.set({ 'Content-Type': 'application/vnd.sqlite3', 'Content-Disposition': `attachment; filename="feedback-backup-${new Date().toISOString().slice(0, 10)}.db"` });
+    res.sendFile(tmp, () => fs.rm(tmp, { force: true }, () => {}));
+  });
+
+  // Add a continuous range of register numbers to one class (old "Add Students" screen).
+  r.post('/students/range', (req, res) => {
+    const cls = db.get('SELECT * FROM classes WHERE id = ?', Number(req.body?.class_id));
+    if (!cls) throw new HttpError(400, 'Choose a class.');
+    const s = scope(req);
+    if (s && cls.department_id !== s) throw new HttpError(403, 'You can only add students to your own department.');
+    const start = str(req.body?.start).toUpperCase();
+    const end = str(req.body?.end).toUpperCase();
+    const m1 = start.match(/^(.*?)(\d+)$/);
+    const m2 = end.match(/^(.*?)(\d+)$/);
+    if (!m1 || !m2 || m1[1] !== m2[1]) throw new HttpError(400, 'Start and end must share the same prefix and end in a number, e.g. 24CSBS001 to 24CSBS060.');
+    const width = m1[2].length;
+    const a = Number(m1[2]);
+    const b = Number(m2[2]);
+    if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || b < a) throw new HttpError(400, 'The end number must be greater than or equal to the start number.');
+    if (b - a + 1 > 300) throw new HttpError(400, 'Add at most 300 students at a time.');
+    const admission = int(req.body?.admission_year, { min: 1990, max: 2100 });
+    const out = db.tx(() => {
+      let added = 0;
+      const skipped = [];
+      for (let n = a; n <= b; n++) {
+        const reg = m1[1] + String(n).padStart(width, '0');
+        if (db.get('SELECT 1 FROM students WHERE register_no = ?', reg)) { skipped.push(reg); continue; }
+        db.run('INSERT INTO students(register_no, name, department_id, class_id, admission_year) VALUES(?,?,?,?,?)', reg, reg, cls.department_id, cls.id, Number.isNaN(admission) ? null : admission);
+        added++;
+      }
+      return { added, skipped };
+    });
+    res.json(out);
+  });
+
+  // Replace the whole faculty-subject list of one class (old "Staff Mapping" screen).
+  r.put('/classes/:id/mappings', (req, res) => {
+    const cls = db.get('SELECT * FROM classes WHERE id = ?', Number(req.params.id));
+    if (!cls) throw new HttpError(404, 'Class not found.');
+    const s = scope(req);
+    if (s && cls.department_id !== s) throw new HttpError(403, 'This class belongs to another department.');
+    const pairs = (req.body?.pairs || []).map((p) => ({ subject_id: Number(p.subject_id), faculty_id: Number(p.faculty_id) })).filter((p) => p.subject_id && p.faculty_id);
+    const seen = new Set();
+    for (const p of pairs) {
+      const sub = db.get('SELECT department_id FROM subjects WHERE id = ?', p.subject_id);
+      if (!sub) throw new HttpError(400, 'A selected subject does not exist.');
+      if (sub.department_id !== cls.department_id) throw new HttpError(400, 'Every subject must belong to the class’s department.');
+      if (!db.get("SELECT 1 FROM faculty WHERE id = ? AND status = 'active'", p.faculty_id)) throw new HttpError(400, 'A selected faculty member does not exist or is inactive.');
+      const k = `${p.subject_id}|${p.faculty_id}`;
+      if (seen.has(k)) throw new HttpError(400, 'The same subject and faculty pair is listed twice.');
+      seen.add(k);
+    }
+    const out = db.tx(() => {
+      const existing = db.all('SELECT * FROM mappings WHERE class_id = ?', cls.id);
+      let removed = 0;
+      for (const m of existing) {
+        if (!seen.has(`${m.subject_id}|${m.faculty_id}`)) { db.run('DELETE FROM mappings WHERE id = ?', m.id); removed++; }
+      }
+      let added = 0;
+      for (const p of pairs) {
+        if (!existing.some((m) => m.subject_id === p.subject_id && m.faculty_id === p.faculty_id)) {
+          db.run('INSERT INTO mappings(class_id, subject_id, faculty_id) VALUES(?,?,?)', cls.id, p.subject_id, p.faculty_id);
+          added++;
+        }
+      }
+      return { added, removed, total: pairs.length };
+    });
+    res.json(out);
+  });
+
   r.get('/matrix', (req, res) => res.json(reports.matrix(db, filtersOf(req), str(req.query.group) || 'class')));
   r.get('/report/faculty/:id', (req, res) => {
     const f = filtersOf(req);

@@ -11,11 +11,13 @@
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
     "seed": "node --disable-warning=ExperimentalWarning server/seed.js --reset",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "import-legacy": "node --disable-warning=ExperimentalWarning server/import-legacy.js"
   },
   "license": "MIT",
   "dependencies": {
     "exceljs": "^4.4.0",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "pdfkit": "^0.15.2"
   }
 }

@@ -213,3 +213,27 @@ body.admin { min-height: 100vh; }
   .faculty-portal main { padding: 0; max-width: none; }
   body.student { background: #fff !important; }
 }
+
+/* ---- official class report preview */
+.official { padding-bottom: 8px; }
+.off-head { text-align: center; padding: 22px 20px 14px; border-bottom: 1px solid var(--border); }
+.off-head h2 { font-size: 1.15rem; letter-spacing: .02em; }
+.off-head p { margin-top: 2px; font-size: .9rem; }
+.off-head .off-title { font-weight: 800; letter-spacing: .04em; margin-top: 6px; }
+.off-head .off-info { color: var(--text-2); font-size: .85rem; margin-top: 6px; }
+.off-table th, .off-table td { padding: 8px 10px; }
+.off-refs { display: grid; grid-template-columns: 1fr 1.4fr; gap: 24px; padding: 16px 20px; font-size: .86rem; color: var(--text-2); }
+.off-refs b { color: var(--text); }
+.off-refs ul, .off-refs ol { margin: 6px 0 0; padding-left: 18px; }
+.off-sign { display: flex; justify-content: space-around; padding: 48px 20px 12px; font-weight: 700; font-size: .9rem; }
+.off-sign span { border-top: 1px solid var(--border-strong); padding-top: 6px; min-width: 140px; text-align: center; }
+.off-foot { text-align: center; font-size: .75rem; color: var(--text-3); padding: 6px 20px 10px; }
+@media (max-width: 800px) { .off-refs { grid-template-columns: 1fr; } }
+
+/* ---- class mapping editor */
+.map-rows { display: flex; flex-direction: column; gap: 8px; }
+.map-row { display: grid; grid-template-columns: 28px 1fr 1fr 36px; gap: 8px; align-items: center; }
+.map-row .n { font-weight: 800; color: var(--text-3); text-align: center; }
+.quick-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; padding: 12px; border-radius: 12px; background: var(--surface-2); border: 1px dashed var(--border-strong); }
+.quick-add .field { flex: 1 1 160px; }
+@media (max-width: 640px) { .map-row { grid-template-columns: 1fr 36px; } .map-row .n { display: none; } }

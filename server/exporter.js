@@ -77,10 +77,11 @@ async function build(db, f, admin, { audience = 'admin' } = {}) {
   }
 
   // Faculty exports never include groups small enough to single out students.
-  const g = (group) => reports.grouped(db, f, group).rows.filter((r) => !forFaculty || r.responses >= minResponses);
+  const g = (group) => reports.grouped(db, f, group).rows.filter((r) => !forFaculty || r.responses >= minResponses).map((r) => ({ ...r, total: r.average === null ? null : Math.round(r.average * 100) / 10 }));
   const statCols = [
     { header: 'Responses', key: 'responses', width: 12 },
     { header: 'Average', key: 'average', width: 11, numFmt: '0.00' },
+    { header: 'Total (/100)', key: 'total', width: 12, numFmt: '0.0' },
     { header: 'Lowest', key: 'min', width: 10, numFmt: '0.00' },
     { header: 'Highest', key: 'max', width: 10, numFmt: '0.00' },
     { header: '≥ 8 (Excellent)', key: 'band_high', width: 15 },

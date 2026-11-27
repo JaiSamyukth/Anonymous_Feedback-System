@@ -1,4 +1,4 @@
-import { h, clear, icon, api, toast, fmtDate, fmtInt } from '../core.js';
+import { h, clear, icon, api, toast, fmtDate, fmtInt, download } from '../core.js';
 import { state, setTop, loadMeta, isSuper } from './shared.js';
 import { crudPage, deptOptions, statusChip } from './crud.js';
 
@@ -84,10 +84,17 @@ export async function general(el) {
   const verify = h('input', { type: 'checkbox', checked: s.require_verification });
   const comments = h('input', { type: 'checkbox', checked: s.allow_comments });
   const minResp = h('input.input#minr', { type: 'number', min: 1, max: 50, value: s.min_responses, style: { maxWidth: '120px' } });
+  const auth = h('select.select#sauth', { style: { maxWidth: '360px' } },
+    h('option', { value: 'dob', selected: s.student_auth !== 'regno' }, 'Register number + date of birth (recommended)'),
+    h('option', { value: 'regno', selected: s.student_auth === 'regno' }, 'Register number only (as in the old system)'));
+  const rTitle = h('input.input#rtitle', { value: s.report_title || '', maxlength: 300 });
+  const rSub = h('input.input#rsub', { value: s.report_subtitle || '', maxlength: 300 });
+  const rFoot = h('input.input#rfoot', { value: s.report_footer || '', maxlength: 300 });
+  const rSign = h('input.input#rsign', { value: s.report_signatures || '', maxlength: 300 });
   const save = h('button.btn.btn-primary', {
     onclick: async () => {
       try {
-        await api('/api/admin/settings', { method: 'PUT', body: { institution_name: name.value, institution_short: short.value, require_verification: verify.checked, allow_comments: comments.checked, min_responses: Number(minResp.value) } });
+        await api('/api/admin/settings', { method: 'PUT', body: { institution_name: name.value, institution_short: short.value, require_verification: verify.checked, allow_comments: comments.checked, min_responses: Number(minResp.value), student_auth: auth.value, report_title: rTitle.value, report_subtitle: rSub.value, report_footer: rFoot.value, report_signatures: rSign.value } });
         await loadMeta();
         toast('Settings saved.');
       } catch (ex) { toast(ex.message, 'bad'); }
@@ -101,7 +108,18 @@ export async function general(el) {
     section('Student access', 'Control how students reach the feedback forms.',
       h('label.switch', verify, h('span.track'), h('span', h('b', 'Require register number verification'), h('div.subtle', 'Recommended. Students see only their class’s faculty and can submit each form once. Turn off to let anyone pick a department and class (no duplicate protection).'))),
       h('label.switch', comments, h('span.track'), h('span', h('b', 'Allow optional written comments'), h('div.subtle', 'Students can add a short anonymous comment with their ratings.')))),
+    section('Student sign-in', 'What students enter to prove they belong to a class.',
+      h('div.field', h('label', { for: 'sauth' }, 'Sign-in method'), auth, h('span.hint', 'Date of birth stops someone from submitting with a classmate’s register number. Use “register number only” if dates of birth are not available yet.'))),
+    section('Official class report (PDF)', 'Header and footer printed on the class-wise PDF report.',
+      h('div.form-grid',
+        h('div.field', h('label', { for: 'rsub' }, 'Line under the institution name'), rSub),
+        h('div.field', h('label', { for: 'rtitle' }, 'Report title'), rTitle),
+        h('div.field', h('label', { for: 'rfoot' }, 'Footer (form number etc.)'), rFoot),
+        h('div.field', h('label', { for: 'rsign' }, 'Signature lines (comma-separated)'), rSign))),
     section('Reporting', 'How results are presented to administrators.',
       h('div.field', h('label', { for: 'minr' }, 'Low-sample threshold (responses)'), minResp, h('span.hint', 'Groups with fewer responses than this are flagged as “Low sample”, and faculty below it are left out of the dashboard rankings.'))),
+    section('Backup & archive', 'Feedback is kept per cycle, so starting a new cycle replaces the old “archive and reset”. Download a full backup any time.',
+      h('div.row', h('button.btn', { onclick: async () => { try { await download('/api/admin/backup', 'feedback-backup.db'); toast('Backup downloaded.'); } catch (ex) { toast(ex.message, 'bad'); } } }, icon('download'), 'Download full backup (.db)'),
+        h('a.btn.btn-ghost', { href: '#/cycles' }, icon('calendar'), 'Manage feedback cycles'))),
     h('div', save));
 }

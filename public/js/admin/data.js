@@ -1,4 +1,4 @@
-import { h, clear, icon, api, qs, toast, roman, fmtInt, fmtDate, download } from '../core.js';
+import { h, clear, icon, api, qs, toast, roman, fmtInt, fmtDate, download, modal } from '../core.js';
 import { state, setTop, loadMeta, isSuper } from './shared.js';
 import { crudPage, deptOptions, deptDefault, classOptions, statusChip } from './crud.js';
 import { dataTable } from './table.js';
@@ -67,7 +67,7 @@ export function students(el) {
   return crudPage(el, {
     title: 'Students', crumb: 'Academic data', endpoint: '/api/admin/students', noun: 'student',
     search: 'Search register number or name…',
-    headerActions: importLink('students'),
+    headerActions: () => [h('button.btn.btn-sm', { onclick: addRange }, icon('users'), 'Add range'), importLink('students')()],
     toolbar: [
       ...deptToolbar(),
       { name: 'class_id', label: 'All classes', options: () => classOptions(null) },
@@ -110,6 +110,118 @@ export function students(el) {
       return [moveSel, statusSel];
     },
   });
+}
+
+function addRange() {
+  const cls = h('select.select#rg-class', h('option', { value: '' }, 'Select class'), classOptions(null).map(([v, l]) => h('option', { value: v }, l)));
+  const start = h('input.input#rg-start', { placeholder: '922523244001', autocomplete: 'off', style: { textTransform: 'uppercase' } });
+  const end = h('input.input#rg-end', { placeholder: '922523244063', autocomplete: 'off', style: { textTransform: 'uppercase' } });
+  const adm = h('input.input#rg-adm', { type: 'number', placeholder: String(new Date().getFullYear() - 1) });
+  const err = h('div.callout.bad.hidden', { role: 'alert' });
+  const m = modal({
+    title: 'Add students by register-number range',
+    subtitle: 'Creates one student per number in the range. Existing register numbers are skipped.',
+    body: h('div.stack', err,
+      h('div.field', h('label', { for: 'rg-class' }, 'Class'), cls),
+      h('div.form-grid', h('div.field', h('label', { for: 'rg-start' }, 'Start register number'), start), h('div.field', h('label', { for: 'rg-end' }, 'End register number'), end)),
+      h('div.field', h('label', { for: 'rg-adm' }, 'Admission year (optional)'), adm),
+      h('div.callout.warn', icon('info'), h('span', 'Students added this way have no name or date of birth yet. Before they can sign in, add dates of birth with Data import → Students (“Add & update”), or switch student sign-in to “Register number only” in Settings.'))),
+    actions: [
+      (close) => h('button.btn', { onclick: close }, 'Cancel'),
+      () => h('button.btn.btn-primary', {
+        onclick: async () => {
+          err.classList.add('hidden');
+          try {
+            const r = await api('/api/admin/students/range', { method: 'POST', body: { class_id: cls.value, start: start.value, end: end.value, admission_year: adm.value } });
+            toast(`${r.added} student(s) added${r.skipped.length ? `, ${r.skipped.length} already existed` : ''}.`);
+            m.close();
+            location.hash = '#/students?' + Date.now();
+          } catch (ex) { clear(err, icon('alert'), h('span', ex.message)); err.classList.remove('hidden'); }
+        },
+      }, 'Add students'),
+    ],
+  });
+}
+
+/* ------------------------------------------------------- class mapping editor */
+function mapClassEditor(presetClass) {
+  let classId = presetClass || '';
+  let rows = [];
+  const list = h('div.map-rows');
+  const err = h('div.callout.bad.hidden', { role: 'alert' });
+  const deptOf = () => state.meta.classes.find((c) => c.id === Number(classId))?.department_id;
+  const cls = h('select.select#mc-class', { onchange: async (e) => { classId = e.target.value; await loadRows(); } },
+    h('option', { value: '' }, 'Select class'), classOptions(null).map(([v, l]) => h('option', { value: v, selected: String(v) === String(classId) }, l)));
+
+  async function loadRows() {
+    if (!classId) { rows = []; paint(); return; }
+    const r = await api(`/api/admin/mappings${qs({ class_id: classId })}`);
+    rows = r.rows.map((m) => ({ subject_id: m.subject_id, faculty_id: m.faculty_id }));
+    if (!rows.length) rows.push({ subject_id: '', faculty_id: '' });
+    paint();
+  }
+  function paint() {
+    if (!classId) { clear(list, h('p.subtle', 'Choose a class to see and edit its staff–subject list.')); return; }
+    const subjects = state.meta.subjects.filter((s) => s.department_id === deptOf());
+    const faculty = state.meta.faculty.filter((f) => f.status === 'active');
+    clear(list,
+      rows.map((r, i) => h('div.map-row',
+        h('span.n', String(i + 1)),
+        h('select.select', { 'aria-label': `Subject ${i + 1}`, onchange: (e) => (r.subject_id = e.target.value) }, h('option', { value: '' }, 'Subject…'), subjects.map((s) => h('option', { value: s.id, selected: String(s.id) === String(r.subject_id) }, `${s.name} (${s.code})`))),
+        h('select.select', { 'aria-label': `Staff ${i + 1}`, onchange: (e) => (r.faculty_id = e.target.value) }, h('option', { value: '' }, 'Staff…'), faculty.map((f) => h('option', { value: f.id, selected: String(f.id) === String(r.faculty_id) }, `${f.name} (${f.staff_id})`))),
+        h('button.btn.btn-ghost.btn-icon.btn-sm', { 'aria-label': 'Remove row', onclick: () => { rows.splice(i, 1); paint(); } }, icon('trash')))),
+      h('div.row', h('button.btn.btn-soft.btn-sm', { onclick: () => { rows.push({ subject_id: '', faculty_id: '' }); paint(); } }, icon('plus'), 'Add row')),
+      quickAdd());
+  }
+  function quickAdd() {
+    const sName = h('input.input', { placeholder: 'New subject name', 'aria-label': 'New subject name' });
+    const fName = h('input.input', { placeholder: 'New staff name', 'aria-label': 'New staff name' });
+    const sem = state.meta.classes.find((c) => c.id === Number(classId))?.semester;
+    const dcode = state.meta.departments.find((d) => d.id === deptOf())?.code || 'SUB';
+    const stamp = () => Date.now().toString(36).slice(-4).toUpperCase();
+    return h('div.quick-add',
+      h('div.field', h('span.label', 'Quick add a subject'), sName),
+      h('button.btn.btn-sm', { onclick: async () => {
+        if (!sName.value.trim()) return;
+        try {
+          await api('/api/admin/subjects', { method: 'POST', body: { code: `${dcode}${sem || ''}${stamp()}`, name: sName.value.trim(), department_id: deptOf(), semester: sem, active: 1 } });
+          await loadMeta(); toast('Subject added — pick it in a row above.'); paint();
+        } catch (ex) { toast(ex.message, 'bad'); }
+      } }, icon('plus'), 'Add subject'),
+      h('div.field', h('span.label', 'Quick add a staff member'), fName),
+      h('button.btn.btn-sm', { onclick: async () => {
+        if (!fName.value.trim()) return;
+        try {
+          const f = await api('/api/admin/faculty', { method: 'POST', body: { staff_id: `STF${stamp()}`, name: fName.value.trim(), department_id: deptOf(), status: 'active' } });
+          await loadMeta(); toast(`Staff added with Staff ID ${f.staff_id} (editable under Faculty).`); paint();
+        } catch (ex) { toast(ex.message, 'bad'); }
+      } }, icon('plus'), 'Add staff'));
+  }
+
+  const m = modal({
+    title: 'Map a whole class',
+    subtitle: 'List every subject and the staff member who teaches it for one class, then save once.',
+    wide: true,
+    body: h('div.stack', { style: { '--gap': '14px' } }, err, h('div.field', h('label', { for: 'mc-class' }, 'Class'), cls), list),
+    actions: [
+      (close) => h('button.btn', { onclick: close }, 'Cancel'),
+      () => h('button.btn.btn-primary', {
+        onclick: async () => {
+          err.classList.add('hidden');
+          if (!classId) return;
+          const pairs = rows.filter((r) => r.subject_id && r.faculty_id);
+          try {
+            const r = await api(`/api/admin/classes/${classId}/mappings`, { method: 'PUT', body: { pairs } });
+            toast(`Saved: ${r.total} subject(s) · ${r.added} added · ${r.removed} removed.`);
+            await loadMeta();
+            m.close();
+            location.hash = '#/mappings?' + Date.now();
+          } catch (ex) { clear(err, icon('alert'), h('span', ex.message)); err.classList.remove('hidden'); }
+        },
+      }, 'Save class mapping'),
+    ],
+  });
+  loadRows();
 }
 
 /* -------------------------------------------------------------- faculty */
@@ -175,7 +287,7 @@ export function mappings(el) {
   return crudPage(el, {
     title: 'Faculty mapping', crumb: 'Academic data', endpoint: '/api/admin/mappings', noun: 'assignment',
     search: 'Search subject or faculty…',
-    headerActions: importLink('mappings'),
+    headerActions: () => [h('button.btn.btn-soft.btn-sm', { onclick: () => mapClassEditor() }, icon('layers'), 'Map a whole class'), importLink('mappings')()],
     toolbar: [...deptToolbar(), { name: 'class_id', label: 'All classes', options: () => classOptions(null) }],
     intro: h('div.callout', icon('link'), h('span', 'Assign who teaches which subject to which class. Students only see the faculty-subject pairs mapped to their own class.')),
     columns: [

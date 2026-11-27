@@ -135,3 +135,35 @@ test/api.test.js                end-to-end API tests (node:test)
 - **Excel:** every report page exports a multi-sheet workbook with the filters applied. Sheets cover faculty, subject, class, department, question, year, semester, academic year, the Class × Question and Faculty × Question matrices, and the anonymous responses.
 - **CSV:** Visualize and every data list (students, faculty, subjects, …) download as CSV.
 - **Print:** every page has a Print button that prints in a clean light layout, headed with the institution, page, active filters and date. Use "Save as PDF" in the print dialog to get a PDF.
+
+## Compared with the previous system
+
+This replaces the earlier Flask/CSV app ([JaiSamyukth/Feedback-System](https://github.com/JaiSamyukth/Feedback-System)). Every feature of that system is covered:
+
+| Previous system | This system |
+| --- | --- |
+| Student enters register number; rates every mapped staff member in one table (1–10) | Register number + date of birth (or register number only, configurable). Each staff–subject form is rated separately with half points, a live average and total, a review step and saved drafts |
+| One submission per register number | One submission per form per cycle, tracked in a separate table that holds no answers |
+| Register number stored (hashed) next to the ratings | No identifier of any kind is stored with ratings. The hashes could have been reversed by trying every register number in a batch |
+| Admin: map staff and subjects for a department + semester (replacing the list) | **Map a whole class** editor (Faculty mapping page) that saves the list in one go, plus single-assignment editing and CSV/Excel import |
+| Admin: quick-add a staff or subject name | Quick add inside the class mapping editor, plus full Faculty and Subjects pages |
+| Admin: add students by register-number range (start–end) | **Add range** on the Students page, plus import, single add, bulk move and status |
+| HOD: select department + semester → view or download the PDF report (V.S.B. format, Q1–Q10, Total /100, bar chart, references, questions, signatures, form-number footer) | **Class report (PDF)**: same format, with View PDF and Download PDF, optionally per section. Header, title, footer and signatures are editable in Settings |
+| HOD: "archive" copies the CSVs to `history/` and resets | Feedback cycles keep every semester's data side by side. **Download full backup** in Settings |
+| Single shared admin password, hard-coded HOD login | Individual accounts with hashed passwords: super admin, department admin (HOD scoped to their department) and faculty portal |
+| 13 departments, 8 semesters, staff and subject name lists | Same departments built in. Staff and subjects carry IDs, departments and semesters. Classes add year and section |
+
+### Bringing over the old data
+
+```bash
+npm run import-legacy -- /path/to/old/Feedback-System
+```
+
+This imports `departments.csv`, `staffs.csv`, `subjects.csv`, `students.csv`, `admin_mapping.csv` and `ratings.csv`:
+
+- Department names are matched to the built-in departments.
+- Staff and subjects get generated IDs (`STF001…`, `SUB001…`). Their department comes from the old mapping file, or "General / Unassigned" if they were never mapped.
+- Students are placed in section A of their department and semester.
+- Old ratings go into a closed "Legacy import" cycle, and their register-number column is discarded.
+
+Running it again does not create duplicates. The old data has no student names or dates of birth, so after importing, either add dates of birth with Data import → Students ("Add & update"), or set Settings → Student sign-in to "Register number only".

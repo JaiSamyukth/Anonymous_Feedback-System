@@ -96,6 +96,11 @@ function seedBase(db) {
     require_verification: '1',
     allow_comments: '1',
     min_responses: '3',
+    student_auth: 'dob',
+    report_title: "STUDENT'S FEEDBACK ON COURSE DELIVERY",
+    report_subtitle: '(An Autonomous Institution)',
+    report_footer: 'Form No. AC 14b      Rev.No. 00      Effective Date: 15/12/2017',
+    report_signatures: 'Class Advisor, HOD, Principal',
   };
   for (const [k, v] of Object.entries(defaults)) if (db.getSetting(k) === null) db.setSetting(k, v);
   if (!db.get('SELECT 1 FROM cycles LIMIT 1')) {
@@ -109,8 +114,8 @@ function seedDemo(db) {
   const deptId = Object.fromEntries(db.all('SELECT id, code FROM departments').map((d) => [d.code, d.id]));
   const questions = db.all('SELECT id FROM questions WHERE active = 1 ORDER BY position');
 
-  db.run("UPDATE settings SET value = 'Sri Venkateswara Institute of Technology' WHERE key = 'institution_name'");
-  db.run("UPDATE settings SET value = 'SVIT' WHERE key = 'institution_short'");
+  db.run("UPDATE settings SET value = 'V.S.B. Engineering College, Karur' WHERE key = 'institution_name'");
+  db.run("UPDATE settings SET value = 'VSBEC' WHERE key = 'institution_short'");
   db.run("INSERT INTO cycles(name, academic_year, term, status, opens_on, closes_on) VALUES('2025-26 Even Semester Feedback','2025-26','Even','closed','2026-04-01','2026-04-30')");
   const openCycle = db.get("SELECT id FROM cycles WHERE status = 'open' ORDER BY id LIMIT 1").id;
   const prevCycle = db.get("SELECT id FROM cycles WHERE status = 'closed' ORDER BY id DESC LIMIT 1").id;

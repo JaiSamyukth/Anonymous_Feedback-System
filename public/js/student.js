@@ -70,7 +70,7 @@ function verifyCard() {
     onsubmit: async (e) => {
       e.preventDefault();
       err.classList.add('hidden');
-      if (!dob.value) { clear(err, icon('alert'), h('span', 'Please enter your date of birth.')); err.classList.remove('hidden'); dob.focus(); return; }
+      if (S.config.requireDob && !dob.value) { clear(err, icon('alert'), h('span', 'Please enter your date of birth.')); err.classList.remove('hidden'); dob.focus(); return; }
       btn.disabled = true;
       clear(btn, h('span.spinner'), 'Checking…');
       try {
@@ -90,8 +90,8 @@ function verifyCard() {
     },
   },
   h('div.field', h('label', { for: 'reg' }, 'Register number'), input),
-  h('div.field', h('label', { for: 'dob' }, 'Date of birth ', h('span.subtle', '(your password)')), dob,
-    h('span.hint#dob-hint', 'Both are used only to confirm you belong to the class. They are never shown on screen or saved with your answers.')),
+  S.config.requireDob ? h('div.field', h('label', { for: 'dob' }, 'Date of birth ', h('span.subtle', '(your password)')), dob,
+    h('span.hint#dob-hint', 'Both are used only to confirm you belong to the class. They are never shown on screen or saved with your answers.')) : null,
   err, btn);
   return h('section.entry', { 'aria-labelledby': 'entry-title' },
     h('h2#entry-title', 'Start your feedback'),

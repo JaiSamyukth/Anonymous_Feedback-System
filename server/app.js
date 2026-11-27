@@ -95,6 +95,7 @@ function createApp(db, { secureCookies = false } = {}) {
       institution: db.getSetting('institution_name'),
       institution_short: db.getSetting('institution_short'),
       requireVerification: db.getSetting('require_verification') === '1',
+      requireDob: db.getSetting('student_auth', 'dob') !== 'regno',
       allowComments: db.getSetting('allow_comments') === '1',
       cycle: cycle ? { id: cycle.id, name: cycle.name, academic_year: cycle.academic_year, term: cycle.term, closes_on: cycle.closes_on } : null,
       questions: activeQuestions(),
@@ -133,14 +134,17 @@ function createApp(db, { secureCookies = false } = {}) {
   const LOCK_AFTER = 5;
   const LOCK_MS = 15 * 60e3;
 
-  pub.post('/verify', rateLimiter({ windowMs: 60e3, max: 12 }), (req, res) => {
+  // Per-IP limits are generous: a whole computer lab often shares one IP address.
+  // Guessing is stopped by the per-register-number lockout instead.
+  pub.post('/verify', rateLimiter({ windowMs: 60e3, max: 300 }), (req, res) => {
     if (db.getSetting('require_verification') !== '1') throw new HttpError(400, 'Verification is not enabled.');
     const cycle = activeCycle();
     if (!cycle) throw new HttpError(409, 'No feedback cycle is open right now. Please check back later.');
     const reg = str(req.body?.register_no).toUpperCase();
     const dob = normalizeDob(req.body?.dob);
     if (!/^[A-Z0-9/-]{3,30}$/.test(reg)) throw new HttpError(400, 'Please enter a valid register number.');
-    if (!dob) throw new HttpError(400, 'Please enter your date of birth.');
+    const needDob = db.getSetting('student_auth', 'dob') !== 'regno';
+    if (needDob && !dob) throw new HttpError(400, 'Please enter your date of birth.');
 
     const f = failures.get(reg);
     if (f && f.until > Date.now()) {
@@ -148,7 +152,7 @@ function createApp(db, { secureCookies = false } = {}) {
     }
     const st = db.get('SELECT * FROM students WHERE register_no = ?', reg);
     // One generic message for "unknown number" and "wrong date" so register numbers can't be probed.
-    if (!st || !st.dob || st.dob !== dob) {
+    if (!st || (needDob && (!st.dob || st.dob !== dob))) {
       const expired = f && f.until && f.until <= Date.now();
       const n = (f && !expired ? f.count : 0) + 1;
       failures.set(reg, { count: n, until: n >= LOCK_AFTER ? Date.now() + LOCK_MS : 0 });
@@ -168,7 +172,7 @@ function createApp(db, { secureCookies = false } = {}) {
     });
   });
 
-  pub.post('/submit', rateLimiter({ windowMs: 60e3, max: 40 }), (req, res) => {
+  pub.post('/submit', rateLimiter({ windowMs: 60e3, max: 600 }), (req, res) => {
     const cycle = activeCycle();
     if (!cycle) throw new HttpError(409, 'The feedback cycle has closed.');
     const mappingId = Number(req.body?.mapping_id);

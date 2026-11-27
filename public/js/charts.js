@@ -62,7 +62,9 @@ function hbarAt(items, { max = 10, refLabel = 'Reference', labelWidth = 150, row
     const w = Math.max(0, x(it.value ?? 0) - labelWidth);
     if (it.value !== null && it.value !== undefined) {
       g.append(s('path', { class: `bar${it.dim ? ' dim' : ''}`, d: hBarPath(labelWidth, y, Math.max(w, 2), bh) }));
-      const end = Math.max(labelWidth + w, it.ref != null ? x(it.ref) + 5 : 0);
+      let end = labelWidth + w;
+      // Keep the value next to its bar; only step past the reference dot when they would collide.
+      if (it.ref != null && x(it.ref) > end - 6 && x(it.ref) < end + 42) end = x(it.ref) + 5;
       g.append(s('text', { x: end + 7, y: y + bh / 2 + 4, class: 'val' }, fmt(it.value)));
     }
     if (it.ref !== null && it.ref !== undefined) {

@@ -155,3 +155,61 @@ body.admin { min-height: 100vh; }
   .table td { white-space: nowrap; }
   .table td span[style*='max-width'], .table td div[style*='max-width'] { white-space: normal; min-width: 220px; }
 }
+
+@media print {
+  .shell { display: block; }
+  .side, .scrim, .top .menu-btn, .top > .row, .top > .btn, .filters, .banner, .tabs button:not([aria-selected='true']), .segmented, .view-controls { display: none !important; }
+  .top { position: static; padding: 0 0 8px; border: 0; background: none; backdrop-filter: none; }
+  .top h1, .top .crumb { display: none; }
+  .content { padding: 0; max-width: none; }
+  .content > * + * { margin-top: 12px; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .kpis { grid-template-columns: repeat(5, 1fr); }
+  .heatmap td { font-size: 10px; padding: 4px; }
+}
+
+/* ---- visualize */
+.segmented button svg { width: 15px; height: 15px; vertical-align: -3px; }
+.btn-x { border: 0; background: none; color: inherit; cursor: pointer; font-weight: 800; padding: 0 0 0 4px; font-size: 1rem; line-height: 1; }
+.heat-legend { align-items: center; margin-bottom: 12px; gap: 4px; }
+.heat-legend i { width: 22px; height: 12px; border-radius: 3px; }
+.heat-wrap { max-height: 70vh; border: 1px solid var(--border); border-radius: var(--radius); }
+.heatmap { border-collapse: separate; border-spacing: 2px; }
+.heatmap th { background: var(--surface); }
+.heatmap td { padding: 8px 10px; border: 0; }
+.heatmap td.heat { font-weight: 700; font-variant-numeric: tabular-nums; border-radius: 4px; min-width: 48px; }
+.heatmap td.heat-strong { font-weight: 800; }
+.heatmap tbody tr:hover td.sticky-col { background: var(--primary-softer); }
+.heatmap .sticky-col { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 200px; max-width: 280px; white-space: normal !important; }
+.heatmap thead .sticky-col { z-index: 3; }
+.viz-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.viz-card { text-align: left; display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface); cursor: pointer; transition: border-color .15s, transform .15s var(--ease), box-shadow .15s; }
+.viz-card:hover:not(:disabled) { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow); }
+.viz-card.static, .viz-card:disabled { cursor: default; color: inherit; opacity: 1; }
+.viz-card b { font-size: .95rem; }
+.vc-score { text-align: right; flex: none; }
+.vc-score b { font-size: 1.6rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.vc-score small { color: var(--text-3); font-weight: 700; }
+.vc-foot { font-size: .8rem; border-top: 1px dashed var(--border); padding-top: 8px; }
+.mix { display: flex; flex-direction: column; gap: 10px; }
+.mix-row { display: grid; grid-template-columns: minmax(160px, 260px) 1fr; gap: 14px; align-items: center; padding: 4px 6px; border-radius: 10px; }
+.mix-row.clickable { cursor: pointer; }
+.mix-row.clickable:hover { background: var(--primary-softer); }
+.mix-label b { display: block; font-size: .9rem; }
+.mix-label span { font-size: .78rem; }
+.mix-bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--surface-3); gap: 2px; }
+.mix-bar i { display: grid; place-items: center; font-style: normal; font-size: .74rem; font-weight: 800; color: #1a1a33; min-width: 3px; }
+.mix-bar i.hi { background: var(--good-mark); color: #fff; }
+.mix-bar i.mid { background: var(--warn-mark); }
+.mix-bar i.lo { background: var(--bad-mark); color: #fff; }
+@media (max-width: 700px) { .mix-row { grid-template-columns: 1fr; gap: 6px; } }
+
+/* ---- faculty portal */
+.faculty-portal #app { flex: 1; display: flex; flex-direction: column; }
+.fac-portal > * + * { margin-top: 20px; }
+.fac-portal { padding-top: 8px; }
+@media print {
+  .faculty-portal .topbar, .faculty-portal .site-foot { display: none !important; }
+  .faculty-portal main { padding: 0; max-width: none; }
+  body.student { background: #fff !important; }
+}

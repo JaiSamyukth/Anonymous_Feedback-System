@@ -37,6 +37,9 @@ async function login(username, password) {
   return r.res.headers.get('set-cookie').split(';')[0];
 }
 
+const dobOf = (reg) => db.get('SELECT dob FROM students WHERE register_no = ?', reg.toUpperCase()).dob;
+const verify = (reg, dob = dobOf(reg)) => call('/api/public/verify', { method: 'POST', body: { register_no: reg, dob } });
+
 const fullRatings = (v = 8) => Object.fromEntries(db.all('SELECT id FROM questions WHERE active = 1').map((q) => [q.id, v]));
 
 test('public config exposes the ten questions and the open cycle', async () => {
@@ -48,12 +51,12 @@ test('public config exposes the ten questions and the open cycle', async () => {
 });
 
 test('verification rejects unknown register numbers', async () => {
-  const r = await call('/api/public/verify', { method: 'POST', body: { register_no: 'ZZZ999' } });
-  assert.equal(r.status, 404);
+  const r = await call('/api/public/verify', { method: 'POST', body: { register_no: 'ZZZ999', dob: '2005-01-01' } });
+  assert.equal(r.status, 401);
 });
 
 test('submission is anonymous, validated and one-per-form', async () => {
-  const v = await call('/api/public/verify', { method: 'POST', body: { register_no: '24csbs001' } });
+  const v = await verify('24csbs001');
   assert.equal(v.status, 200);
   const token = v.data.token;
   const form = v.data.forms[0];
@@ -92,14 +95,14 @@ test('submission is anonymous, validated and one-per-form', async () => {
 });
 
 test('students cannot submit for another class', async () => {
-  const v = await call('/api/public/verify', { method: 'POST', body: { register_no: '24CSBS002' } });
+  const v = await verify('24CSBS002');
   const other = db.get('SELECT m.id FROM mappings m WHERE m.class_id <> ? LIMIT 1', v.data.class.id);
   const r = await call('/api/public/submit', { method: 'POST', headers: { 'x-student-token': v.data.token }, body: { mapping_id: other.id, ratings: fullRatings() } });
   assert.equal(r.status, 403);
 });
 
 test('tampered student tokens are rejected', async () => {
-  const v = await call('/api/public/verify', { method: 'POST', body: { register_no: '24CSBS003' } });
+  const v = await verify('24CSBS003');
   const [p, sig] = v.data.token.split('.');
   const forged = Buffer.from(Buffer.from(p, 'base64url').toString().replace(/^\d+/, '1')).toString('base64url') + '.' + sig;
   const r = await call('/api/public/forms', { headers: { 'x-student-token': forged } });
@@ -165,28 +168,30 @@ test('department admins are scoped to their department', async () => {
 test('import: preview validates, add mode skips existing, update mode updates', async () => {
   const cookie = await login('admin', 'admin123');
   const csv = [
-    'Register Number,Name,Department,Year,Semester,Section',
-    '24CSBS001,Renamed Student,CSBS,III,V,A', // exists
-    '99CSBS900,New Student,CSBS,3,5,A', // new
-    '99CSBS900,Dup Student,CSBS,3,5,A', // duplicate in file
-    '99CSBS901,,CSBS,III,V,A', // missing name
-    '99CSBS902,Bad Dept,NOPE,III,V,A', // invalid dept
-    '99CSBS903,No Class,CSBS,III,V,Z', // class does not exist
-    '99CSBS904,Bad Sem,CSBS,III,II,A', // semester not in year
+    'Register Number,Name,Department,Year,Semester,Section,Date of Birth',
+    '24CSBS001,Renamed Student,CSBS,III,V,A,2006-01-01', // exists
+    '99CSBS900,New Student,CSBS,3,5,A,15/08/2006', // new
+    '99CSBS900,Dup Student,CSBS,3,5,A,15/08/2006', // duplicate in file
+    '99CSBS901,,CSBS,III,V,A,2006-01-01', // missing name
+    '99CSBS902,Bad Dept,NOPE,III,V,A,2006-01-01', // invalid dept
+    '99CSBS903,No Class,CSBS,III,V,Z,2006-01-01', // class does not exist
+    '99CSBS904,Bad Sem,CSBS,III,II,A,2006-01-01', // semester not in year
+    '99CSBS905,No DOB,CSBS,III,V,A,', // missing date of birth
   ].join('\n');
   const p = await call('/api/admin/import/preview?type=students&mode=add&filename=s.csv', { method: 'POST', cookie, body: Buffer.from(csv) });
   assert.equal(p.status, 200, JSON.stringify(p.data));
-  assert.deepEqual(p.data.summary, { total: 7, new: 1, update: 0, exists: 1, duplicate: 1, invalid: 4 });
+  assert.deepEqual(p.data.summary, { total: 8, new: 1, update: 0, exists: 1, duplicate: 1, invalid: 5 });
   const c = await call('/api/admin/import/commit', { method: 'POST', cookie, body: { token: p.data.token } });
   assert.equal(c.data.added, 1);
   assert.equal(db.get("SELECT name FROM students WHERE register_no = '24CSBS001'").name !== 'Renamed Student', true);
   // token is single use
   assert.equal((await call('/api/admin/import/commit', { method: 'POST', cookie, body: { token: p.data.token } })).status, 410);
 
-  const p2 = await call('/api/admin/import/preview?type=students&mode=update&filename=s.csv', { method: 'POST', cookie, body: Buffer.from('regno,student name,dept,year,sem,sec\n24CSBS001,Renamed Student,CSBS,III,V,A') });
+  const p2 = await call('/api/admin/import/preview?type=students&mode=update&filename=s.csv', { method: 'POST', cookie, body: Buffer.from('regno,student name,dept,year,sem,sec,dob\n24CSBS001,Renamed Student,CSBS,III,V,A,2006-02-03') });
   assert.equal(p2.data.summary.update, 1);
   await call('/api/admin/import/commit', { method: 'POST', cookie, body: { token: p2.data.token } });
   assert.equal(db.get("SELECT name FROM students WHERE register_no = '24CSBS001'").name, 'Renamed Student');
+  assert.equal(db.get("SELECT dob FROM students WHERE register_no = '99CSBS900'").dob, '2006-08-15');
 
   const missing = await call('/api/admin/import/preview?type=faculty&mode=add&filename=f.csv', { method: 'POST', cookie, body: Buffer.from('Name,Department\nA,CSE') });
   assert.equal(missing.status, 400);
@@ -219,4 +224,66 @@ test('only one cycle can be open', async () => {
   // restore
   db.run("UPDATE cycles SET status = 'closed' WHERE id = ?", r.data.id);
   db.run("UPDATE cycles SET status = 'open' WHERE id = 1");
+});
+
+test('verification needs the right date of birth, reveals no personal data, and locks out guessing', async () => {
+  const ok = await verify('25CSE001');
+  assert.equal(ok.status, 200);
+  const body = JSON.stringify(ok.data);
+  const st = db.get("SELECT name FROM students WHERE register_no = '25CSE001'");
+  assert.ok(!body.includes(st.name) && !body.includes('25CSE001'), 'no name or register number in response');
+  const dmy = dobOf('25CSE001').split('-').reverse().join('/');
+  assert.equal((await verify('25CSE001', dmy)).status, 200, 'DD/MM/YYYY accepted');
+
+  for (let i = 0; i < 5; i++) assert.equal((await verify('25CSE002', '1999-01-01')).status, 401);
+  assert.equal((await verify('25CSE002')).status, 429, 'locked even with the right date');
+});
+
+test('faculty portal: first sign-in with Staff ID, forced change, own aggregated data only', async () => {
+  const fac = db.get("SELECT * FROM faculty WHERE staff_id = 'FAC101'");
+  const bad = await call('/api/faculty/login', { method: 'POST', body: { staff_id: 'FAC101', password: 'nope' } });
+  assert.equal(bad.status, 401);
+  const r = await call('/api/faculty/login', { method: 'POST', body: { staff_id: 'fac101', password: 'FAC101' } });
+  assert.equal(r.status, 200);
+  const cookie = r.res.headers.get('set-cookie').split(';')[0];
+  const me = await call('/api/faculty/me', { cookie });
+  assert.equal(me.data.mustChange, true);
+  assert.equal((await call('/api/faculty/report', { cookie })).status, 403);
+  assert.equal((await call('/api/faculty/password', { method: 'POST', cookie, body: { current: 'FAC101', next: 'short' } })).status, 400);
+  assert.equal((await call('/api/faculty/password', { method: 'POST', cookie, body: { current: 'FAC101', next: 'MyNewPass2026' } })).status, 200);
+
+  const rep = await call('/api/faculty/report?cycle_id=all', { cookie });
+  assert.equal(rep.status, 200);
+  assert.equal(rep.data.faculty.id, fac.id);
+  assert.ok(!('password_hash' in rep.data.faculty));
+  assert.ok(rep.data.totals.responses > 0);
+  // no other faculty's data reachable through query params
+  const other = db.get("SELECT id FROM faculty WHERE staff_id = 'FAC102'").id;
+  const tryOther = await call(`/api/faculty/report?cycle_id=all&faculty_id=${other}`, { cookie });
+  assert.equal(tryOther.data.faculty.id, fac.id);
+  assert.equal(tryOther.data.totals.responses, rep.data.totals.responses);
+
+  const x = await call('/api/faculty/export?cycle_id=all', { cookie, raw: true });
+  assert.equal(x.status, 200);
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(Buffer.from(await x.arrayBuffer()));
+  const names = wb.worksheets.map((w) => w.name);
+  assert.ok(!names.includes('Responses (anonymous)') && !names.includes('Faculty-wise'));
+
+  // old password no longer works; the new one does
+  assert.equal((await call('/api/faculty/login', { method: 'POST', body: { staff_id: 'FAC101', password: 'FAC101' } })).status, 401);
+  assert.equal((await call('/api/faculty/login', { method: 'POST', body: { staff_id: 'FAC101', password: 'MyNewPass2026' } })).status, 200);
+  // admin cookies don't open the faculty API and vice versa
+  assert.equal((await call('/api/admin/dashboard', { cookie })).status, 401);
+});
+
+test('matrix endpoint returns per-question averages for each entity', async () => {
+  const cookie = await login('admin', 'admin123');
+  for (const group of ['class', 'faculty', 'year', 'subject', 'department', 'section', 'semester']) {
+    const m = await call(`/api/admin/matrix?group=${group}`, { cookie });
+    assert.equal(m.status, 200, group);
+    assert.ok(m.data.rows.length > 0, group);
+    assert.equal(Object.keys(m.data.rows[0].questions).length, 10, group);
+  }
 });

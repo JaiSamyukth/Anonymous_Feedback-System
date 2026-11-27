@@ -83,6 +83,7 @@ const GROUPS = {
     label: (r) => classLabel(r),
   },
   section: { select: "'Section ' || f.section AS label", join: '', by: 'f.section' },
+  year: { select: 'f.year', join: '', by: 'f.year', order: 'f.year', label: (r) => `${toRoman(r.year)} Year` },
   department: {
     select: 'd.id AS department_id, d.code AS label, d.name AS sub, COUNT(DISTINCT f.faculty_id) AS faculty_count',
     join: 'JOIN departments d ON d.id = f.department_id',
@@ -110,7 +111,7 @@ function grouped(db, f, group) {
   }
   const g = GROUPS[group] || GROUPS.faculty;
   const rows = db
-    .all(`SELECT ${g.select}, ${STATS} ${FROM} ${g.join} ${w.sql} GROUP BY ${g.by} ORDER BY ${g.order || 'average DESC'}`, ...w.params)
+    .all(`SELECT ${g.select}, ${keyExpr(g)} AS gkey, ${STATS} ${FROM} ${g.join} ${w.sql} GROUP BY ${g.by} ORDER BY ${g.order || 'average DESC'}`, ...w.params)
     .map((r) => ({
       ...r,
       label: g.label ? g.label(r) : r.label,
@@ -118,6 +119,33 @@ function grouped(db, f, group) {
       lowSample: r.responses < minResponses,
     }));
   return { group, rows, overall: overall(db, w), minResponses };
+}
+
+const keyExpr = (g) => g.by.split(',').map((c) => `COALESCE(${c.trim()}, '')`).join(" || '|' || ");
+
+/**
+ * Entity × question matrix: every group row plus its per-question averages.
+ * Powers the heatmap / small-multiples views on the Visualize page.
+ */
+function matrix(db, f, group) {
+  if (group === 'question') group = 'faculty';
+  const base = grouped(db, f, group);
+  const g = GROUPS[group] || GROUPS.faculty;
+  const skip = ['academic_year', 'semester', 'cycle'].includes(group) ? ['cycle_id'] : [];
+  const w = where(db, f, { skip });
+  const cells = db.all(
+    `SELECT ${keyExpr(g)} AS gkey, a.question_id, AVG(a.rating) AS average
+       ${FROM} ${g.join} JOIN feedback_answers a ON a.feedback_id = f.id ${w.sql}
+      GROUP BY ${g.by}, a.question_id`,
+    ...w.params,
+  );
+  const byKey = new Map();
+  for (const c of cells) {
+    if (!byKey.has(c.gkey)) byKey.set(c.gkey, {});
+    byKey.get(c.gkey)[c.question_id] = round(c.average);
+  }
+  const questions = db.all('SELECT id, position, short, text FROM questions WHERE active = 1 ORDER BY position, id');
+  return { ...base, questions, rows: base.rows.map((r) => ({ ...r, questions: byKey.get(r.gkey) || {} })) };
 }
 
 function overall(db, w) {
@@ -336,4 +364,4 @@ function classCompletion(db, f, cls) {
   return { class: { ...cls, label: classLabel({ ...cls, department_code: d.code }) }, forms, students, total: forms.length };
 }
 
-module.exports = { parseFilters, resolveCycle, where, grouped, dashboard, facultyDetail, responses, completion, classCompletion, FROM, round };
+module.exports = { matrix, parseFilters, resolveCycle, where, grouped, dashboard, facultyDetail, responses, completion, classCompletion, FROM, round };

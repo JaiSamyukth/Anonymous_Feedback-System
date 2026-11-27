@@ -146,6 +146,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL
 );
 
+-- Faculty portal sessions (separate from admin sessions).
+CREATE TABLE IF NOT EXISTS faculty_sessions (
+  token_hash TEXT PRIMARY KEY,
+  faculty_id INTEGER NOT NULL REFERENCES faculty(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS import_logs (
   id         INTEGER PRIMARY KEY,
   type       TEXT NOT NULL,
@@ -164,6 +171,32 @@ CREATE INDEX IF NOT EXISTS ix_feedback_faculty ON feedback(faculty_id);
 CREATE INDEX IF NOT EXISTS ix_students_class   ON students(class_id);
 CREATE INDEX IF NOT EXISTS ix_mappings_class   ON mappings(class_id);
 `;
+
+/** Adds columns introduced after the first release to existing databases. */
+function migrate(db) {
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  const add = (t, col, def) => { if (!cols(t).includes(col)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${col} ${def}`); };
+  add('students', 'dob', 'TEXT');
+  add('faculty', 'password_hash', 'TEXT');
+  add('faculty', 'must_change_password', 'INTEGER NOT NULL DEFAULT 1');
+  add('faculty', 'last_login', 'TEXT');
+}
+
+/** Normalises a date of birth to YYYY-MM-DD. Accepts YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY, Date. */
+function normalizeDob(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  let y, m, d;
+  let mt = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ].*)?$/);
+  if (mt) [, y, m, d] = mt;
+  else if ((mt = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/))) [, d, m, y] = mt;
+  else return undefined;
+  const dt = new Date(Date.UTC(+y, +m - 1, +d));
+  if (dt.getUTCFullYear() !== +y || dt.getUTCMonth() !== +m - 1 || dt.getUTCDate() !== +d) return undefined;
+  if (+y < 1940 || dt > new Date()) return undefined;
+  return dt.toISOString().slice(0, 10);
+}
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -201,6 +234,7 @@ function open(file) {
       throw err;
     }
   };
+  migrate(db);
   db.all = (sql, ...p) => db.prepare(sql).all(...p);
   db.get = (sql, ...p) => db.prepare(sql).get(...p);
   db.run = (sql, ...p) => db.prepare(sql).run(...p);
@@ -216,4 +250,4 @@ function open(file) {
   return db;
 }
 
-module.exports = { open, hashPassword, verifyPassword, today };
+module.exports = { open, hashPassword, verifyPassword, today, normalizeDob };

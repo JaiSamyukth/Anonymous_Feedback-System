@@ -45,9 +45,10 @@ function viewWelcome() {
   const c = S.config;
   if (!c.cycle) return viewClosed();
   const promises = [
-    ['eyeOff', 'Your name is never attached', 'Ratings are stored without your register number, name or any link back to you.'],
-    ['shield', 'Register number only checks eligibility', 'It confirms you belong to the class and prevents duplicate submissions — nothing more.'],
-    ['chart', 'Faculty see averages, not individuals', 'Results are combined across your whole class before anyone reviews them.'],
+    ['eyeOff', '100% anonymous', 'Your ratings are saved with no name, no register number and no time of day — nothing that points back to you.'],
+    ['shield', 'Sign-in only checks you belong to the class', 'Your register number and date of birth confirm eligibility and stop duplicate submissions. They are never stored with your answers.'],
+    ['lock', 'No personal details on screen', 'After you sign in, this portal shows only your class — never your name or register number.'],
+    ['chart', 'Faculty see class averages only', 'Results are combined across many students before anyone reviews them.'],
   ];
   const left = h('section',
     h('span.chip.chip-accent', icon('sparkles'), `${c.cycle.name}`),
@@ -61,35 +62,42 @@ function viewWelcome() {
 
 function verifyCard() {
   const err = h('div.err.hidden', { role: 'alert' });
-  const input = h('input.input.input-lg#reg', { name: 'register_no', autocomplete: 'off', autocapitalize: 'characters', spellcheck: false, placeholder: 'e.g. 24CSBS001', required: true, maxlength: 30, 'aria-describedby': 'reg-hint' });
+  const input = h('input.input.input-lg#reg', { name: 'register_no', autocomplete: 'off', autocapitalize: 'characters', spellcheck: false, placeholder: 'e.g. 24CSBS001', required: true, maxlength: 30 });
+  const dob = h('input.input.input-lg#dob', { name: 'dob', type: 'date', required: true, max: new Date().toISOString().slice(0, 10), min: '1950-01-01', autocomplete: 'off', 'aria-describedby': 'dob-hint' });
   const btn = h('button.btn.btn-primary.btn-lg.btn-block', { type: 'submit' }, 'Continue', icon('arrowRight'));
   const form = h('form.stack', {
+    autocomplete: 'off',
     onsubmit: async (e) => {
       e.preventDefault();
       err.classList.add('hidden');
+      if (!dob.value) { clear(err, icon('alert'), h('span', 'Please enter your date of birth.')); err.classList.remove('hidden'); dob.focus(); return; }
       btn.disabled = true;
       clear(btn, h('span.spinner'), 'Checking…');
       try {
-        const out = await api('/api/public/verify', { method: 'POST', body: { register_no: input.value.trim() } });
-        S.session = { token: out.token, student: out.student, class: out.class, forms: out.forms };
+        const out = await api('/api/public/verify', { method: 'POST', body: { register_no: input.value.trim(), dob: dob.value } });
+        S.session = { token: out.token, class: out.class, forms: out.forms };
         saveSession();
+        input.value = '';
+        dob.value = '';
         location.hash = '#/forms';
       } catch (ex) {
         clear(err, icon('alert'), h('span', ex.message));
         err.classList.remove('hidden');
-        input.focus();
       } finally {
         btn.disabled = false;
         clear(btn, 'Continue', icon('arrowRight'));
       }
     },
   },
-  h('div.field', h('label', { for: 'reg' }, 'Register number'), input, h('span.hint#reg-hint', 'Used only to find your class. It is never saved with your answers.')),
+  h('div.field', h('label', { for: 'reg' }, 'Register number'), input),
+  h('div.field', h('label', { for: 'dob' }, 'Date of birth ', h('span.subtle', '(your password)')), dob,
+    h('span.hint#dob-hint', 'Both are used only to confirm you belong to the class. They are never shown on screen or saved with your answers.')),
   err, btn);
   return h('section.entry', { 'aria-labelledby': 'entry-title' },
     h('h2#entry-title', 'Start your feedback'),
     h('p.muted', `Open until ${fmtDate(S.config.cycle.closes_on)}`),
-    form);
+    form,
+    h('div.anon-note', icon('eyeOff'), h('span', h('b', 'Anonymous by design. '), 'No personal data — including your register number — is displayed or attached to your feedback.')));
 }
 
 function openModeCard() {
@@ -152,16 +160,15 @@ async function refreshForms() {
 }
 
 function viewForms() {
-  const { forms, student, class: cls } = S.session;
+  const { forms, class: cls } = S.session;
   const done = forms.filter((f) => f.completed).length;
   const pct = forms.length ? Math.round((done / forms.length) * 100) : 0;
-  const first = student?.name?.split(' ')[0];
 
   const head = h('div.page-head',
     h('div',
       h('div.kicker', cls.label),
-      h('h1', first ? `Hi ${first}, who would you like to rate?` : 'Who would you like to rate?'),
-      h('p.muted', { style: { marginTop: '6px' } }, 'Pick a faculty and subject. You can do them in any order.')),
+      h('h1', 'Who would you like to rate?'),
+      h('p.muted.row', { style: { marginTop: '8px', '--gap': '8px' } }, h('span.chip.chip-good', icon('eyeOff'), 'Signed in anonymously'), 'Pick a faculty and subject, in any order.')),
     h('div.card.progress-card',
       h('div.ring', { style: { '--p': pct, '--ring-color': done === forms.length && forms.length ? 'var(--good-mark)' : 'var(--primary)' } }, h('div', h('b', `${done}/${forms.length}`), h('small', 'DONE'))),
       h('div', h('b', done === forms.length && forms.length ? 'All complete!' : `${forms.length - done} remaining`), h('div.subtle', 'Each form ≈ 2 minutes'))));

@@ -336,3 +336,27 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
 .ring::before { content: ''; position: absolute; inset: var(--th); border-radius: 50%; background: var(--surface); }
 .ring > * { position: relative; text-align: center; }
 @property --p { syntax: '<number>'; inherits: true; initial-value: 0; }
+
+/* ----------------------------------------------------------------- print */
+.print-head { display: none; }
+@media print {
+  @page { margin: 14mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: #fff !important; font-size: 12px; }
+  .btn, .toasts, .chart-tip, .modal-backdrop, .no-print { display: none !important; }
+  .card { box-shadow: none !important; break-inside: avoid; }
+  .table-wrap { overflow: visible !important; }
+  .table th { position: static; }
+  .table tbody tr:hover { background: none; }
+  .print-head { display: block; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #4f46e5; }
+  .print-head .ph-top { display: flex; justify-content: space-between; font-size: 11px; color: #55557a; }
+  .print-head h1 { font-size: 20px; margin: 6px 0 4px; }
+  .print-head p { font-size: 11px; color: #55557a; }
+  .print-head .ph-note { margin-top: 4px; font-style: italic; }
+}
+@media print {
+  .card { break-inside: auto; }
+  .kpi, .comment, .viz-card, .mix-row, .table tr, .card-head { break-inside: avoid; }
+  .heat-wrap { max-height: none !important; overflow: visible !important; }
+  .heatmap .sticky-col { position: static; }
+}

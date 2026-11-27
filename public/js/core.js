@@ -83,6 +83,8 @@ const PATHS = {
   trendUp: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
   filter: '<path d="M3 5h18l-7 8v6l-4 2v-8L3 5z"/>',
+  printer: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
+  eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   graduation: '<path d="m2 9 10-5 10 5-10 5L2 9z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5M22 9v6"/>',
 };
 
@@ -268,3 +270,51 @@ export const LOGO = () => {
   s.innerHTML = '<svg viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="12" fill="var(--primary)"/><path d="M11 13.5c0-1.4 1.1-2.5 2.5-2.5h13c1.4 0 2.5 1.1 2.5 2.5v9c0 1.4-1.1 2.5-2.5 2.5H19l-5 4v-4h-.5A2.5 2.5 0 0 1 11 22.5v-9z" fill="#fff"/><path d="m16 18 2.6 2.6L24.5 15" stroke="var(--accent)" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   return s;
 };
+
+/* ------------------------------------------------------------------ print */
+/**
+ * Print support: prints in the light theme, with a header naming the page,
+ * the active filters (read from any .filters select) and the print date.
+ */
+export function setupPrint({ getTitle, getSubtitle, container }) {
+  let prevTheme;
+  window.addEventListener('beforeprint', () => {
+    prevTheme = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = 'light';
+    const host = container();
+    if (!host) return;
+    host.querySelector(':scope > .print-head')?.remove();
+    const filters = [...document.querySelectorAll('.filters select')].map((s) => {
+      const label = s.closest('.field')?.querySelector('label')?.textContent;
+      return label ? `${label}: ${s.selectedOptions[0]?.textContent || ''}` : null;
+    }).filter(Boolean);
+    const tab = document.querySelector('.tabs [aria-selected="true"], .segmented [aria-pressed="true"]');
+    host.prepend(h('div.print-head',
+      h('div.ph-top', h('b', getSubtitle?.() || ''), h('span', `Printed ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`)),
+      h('h1', getTitle() + (tab ? ` — ${tab.textContent}` : '')),
+      filters.length ? h('p', filters.join('  ·  ')) : null,
+      h('p.ph-note', 'Anonymous student feedback. Ratings on a 1–10 scale. No student identities are stored with responses.')));
+  });
+  window.addEventListener('afterprint', () => {
+    if (prevTheme) document.documentElement.dataset.theme = prevTheme;
+    else delete document.documentElement.dataset.theme;
+    container()?.querySelector(':scope > .print-head')?.remove();
+  });
+}
+
+export const printButton = (label = 'Print') => h('button.btn.btn-sm', { onclick: () => window.print(), title: 'Print or save as PDF' }, icon('printer'), label);
+
+/** Downloads rows as a UTF-8 CSV that opens cleanly in Excel. */
+export function downloadCsv(filename, headers, rows) {
+  const esc = (v) => {
+    const t = v === null || v === undefined ? '' : String(v);
+    return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const text = '\ufeff' + [headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n');
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  const a = h('a', { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

@@ -1,4 +1,4 @@
-import { h, clear, icon, api, qs, fmt, fmtInt, fmtDate, bandChip, avatar, scoreBar, download, toast, modal } from '../core.js';
+import { h, clear, icon, api, qs, fmt, fmtInt, fmtDate, bandChip, avatar, scoreBar, download, toast, modal, printButton } from '../core.js';
 import { hbar, columns, line } from '../charts.js';
 import { state, setTop, filterBar, filterQuery, loading, defaultPasswordBanner } from './shared.js';
 import { dataTable } from './table.js';
@@ -33,7 +33,7 @@ export async function dashboard(el) {
   setTop('Dashboard', { crumb: state.me.institution });
   const KEYS = ['cycle', 'department', 'year', 'semester', 'section'];
   const body = h('div.stack', { style: { '--gap': '20px' } });
-  el.append(defaultPasswordBanner() || '', filterBar(KEYS, load, { extra: [exportButton(KEYS)] }), body);
+  el.append(defaultPasswordBanner() || '', filterBar(KEYS, load, { extra: [exportButton(KEYS), printButton()] }), body);
 
   async function load() {
     loading(body, 360);
@@ -76,6 +76,7 @@ const GROUPS = [
   ['faculty', 'Faculty-wise'],
   ['subject', 'Subject-wise'],
   ['class', 'Class-wise'],
+  ['year', 'Year-wise'],
   ['section', 'Section-wise'],
   ['department', 'Department-wise'],
   ['question', 'Question-wise'],
@@ -91,7 +92,7 @@ export async function reports(el) {
   const body = h('div');
   const paintTabs = () => clear(tabs, GROUPS.map(([k, label]) => h('button', { role: 'tab', 'aria-selected': String(k === group), onclick: () => { group = k; sessionStorage.setItem('afs-group', k); paintTabs(); load(); } }, label)));
   paintTabs();
-  el.append(filterBar(KEYS, load, { extra: [exportButton(KEYS)] }), h('section.card', tabs, body));
+  el.append(filterBar(KEYS, load, { extra: [exportButton(KEYS), printButton()] }), h('section.card', tabs, body));
 
   async function load() {
     loading(body, 300);
@@ -129,6 +130,7 @@ export async function reports(el) {
       ],
       class: [{ key: 'label', label: 'Class', strong: true }, { key: 'faculty_count', label: 'Faculty', align: 'right' }, ...stat],
       section: [{ key: 'label', label: 'Section', strong: true }, ...stat],
+      year: [{ key: 'year', label: 'Year', strong: true, render: (x) => x.label }, ...stat],
       department: [{ key: 'label', label: 'Department', render: (x) => h('div', h('div.cell-strong', x.label), h('div.subtle', x.sub)) }, { key: 'faculty_count', label: 'Faculty', align: 'right' }, ...stat],
       question: [
         { key: 'position', label: '#', render: (x) => `Q${x.position}` },
@@ -164,7 +166,7 @@ export async function facultyDetail(el, id) {
   const KEYS = ['cycle', 'year', 'semester', 'section', 'subject'];
   setTop('Faculty insights', { crumb: 'Reports', actions: [h('a.btn.btn-ghost.btn-sm', { href: '#/reports' }, icon('arrowLeft'), 'All faculty')] });
   const body = h('div.stack', { style: { '--gap': '20px' } });
-  el.append(filterBar(KEYS, load, { extra: [h('button.btn.btn-primary.btn-sm', { onclick: () => download(`/api/admin/export${qs({ ...filterQuery(KEYS), faculty_id: id })}`, 'faculty-report.xlsx') }, icon('download'), 'Export Excel')] }), body);
+  el.append(filterBar(KEYS, load, { extra: [h('button.btn.btn-primary.btn-sm', { onclick: () => download(`/api/admin/export${qs({ ...filterQuery(KEYS), faculty_id: id })}`, 'faculty-report.xlsx') }, icon('download'), 'Export Excel'), printButton()] }), body);
 
   async function load() {
     loading(body, 400);
@@ -218,7 +220,7 @@ export async function responses(el) {
   const toggle = h('label.switch', h('input', { type: 'checkbox', onchange: (e) => { commentsOnly = e.target.checked; offset = 0; load(); } }), h('span.track'), h('span', 'With comments only'));
   el.append(
     h('div.callout', icon('eyeOff'), h('span', 'Every response is anonymous. Records contain academic context and the submission date only — never a student name, register number or time of day.')),
-    filterBar(KEYS, () => { offset = 0; load(); }, { extra: [exportButton(KEYS)] }),
+    filterBar(KEYS, () => { offset = 0; load(); }, { extra: [exportButton(KEYS), printButton()] }),
     h('section.card', h('div.card-head', h('h3', 'Individual responses'), toggle), body));
 
   const questions = state.meta.questions.filter((q) => q.active);
@@ -257,7 +259,7 @@ export async function completion(el) {
   const body = h('div.stack', { style: { '--gap': '20px' } });
   el.append(
     h('div.callout', icon('shield'), h('span', 'Completion shows ', h('b', 'who'), ' has submitted, never ', h('b', 'what'), ' they answered. Completion records and anonymous ratings are stored separately and cannot be joined.')),
-    filterBar(KEYS, load), body);
+    filterBar(KEYS, load, { extra: [printButton()] }), body);
 
   async function load() {
     loading(body, 300);

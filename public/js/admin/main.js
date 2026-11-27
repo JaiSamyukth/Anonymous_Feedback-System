@@ -1,8 +1,9 @@
-import { h, clear, icon, api, toast, modal, themeToggle, avatar, LOGO } from '../core.js';
+import { h, clear, icon, api, toast, modal, themeToggle, avatar, LOGO, setupPrint } from '../core.js';
 import { state, loadMeta, bindTop, isSuper } from './shared.js';
 import * as insights from './insights.js';
 import * as data from './data.js';
 import * as settings from './settings.js';
+import { visualize } from './visualize.js';
 
 const app = document.getElementById('app');
 
@@ -11,6 +12,7 @@ const NAV = [
     ['dashboard', 'Dashboard', 'home'],
   ]],
   ['Feedback', [
+    ['visualize', 'Visualize', 'grid'],
     ['reports', 'Reports', 'chart'],
     ['responses', 'Responses', 'message'],
     ['completion', 'Completion', 'target'],
@@ -34,6 +36,7 @@ const NAV = [
 
 const ROUTES = {
   dashboard: insights.dashboard,
+  visualize,
   reports: insights.reports,
   'faculty-report': insights.facultyDetail,
   responses: insights.responses,
@@ -94,7 +97,7 @@ function viewLogin(message) {
       h('div.field', h('label', { for: 'p' }, 'Password'), pass),
       btn,
       h('p.demo-hint', 'Demo accounts — super admin: ', h('b.mono', 'admin / admin123'), ' · department admin (CSE): ', h('b.mono', 'hod.cse / hod123'), '. Change these passwords after first sign-in.'),
-      h('a.subtle', { href: '/' }, '← Back to the student portal')))));
+      h('div.row.subtle', { style: { justifyContent: 'space-between' } }, h('a', { href: '/' }, '← Student portal'), h('a', { href: '/faculty' }, 'Faculty? Sign in here →'))))));
   user.focus();
 }
 
@@ -206,6 +209,7 @@ async function boot() {
 }
 
 window.addEventListener('hashchange', route);
+setupPrint({ getTitle: () => document.querySelector('.top h1')?.textContent || 'Report', getSubtitle: () => state.me?.institution, container: () => document.getElementById('content') });
 window.addEventListener('afs:account', accountMenu);
 window.addEventListener('afs:meta', async () => { await loadMeta(); });
 boot();

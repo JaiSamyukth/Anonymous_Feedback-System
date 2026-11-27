@@ -121,7 +121,7 @@ function seedDemo(db) {
   const insSub = db.prepare('INSERT INTO subjects(code, name, department_id, semester) VALUES(?,?,?,?)');
   const insCls = db.prepare('INSERT INTO classes(department_id, year, semester, section) VALUES(?,?,?,?)');
   const insMap = db.prepare('INSERT INTO mappings(class_id, subject_id, faculty_id) VALUES(?,?,?)');
-  const insStu = db.prepare('INSERT INTO students(register_no, name, department_id, class_id, admission_year) VALUES(?,?,?,?,?)');
+  const insStu = db.prepare('INSERT INTO students(register_no, name, department_id, class_id, admission_year, dob) VALUES(?,?,?,?,?,?)');
   const insFb = db.prepare('INSERT INTO feedback(id, cycle_id, mapping_id, faculty_id, subject_id, department_id, year, semester, section, average, comment, submitted_on) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
   const insAns = db.prepare('INSERT INTO feedback_answers(feedback_id, question_id, rating) VALUES(?,?,?)');
   const insCmp = db.prepare('INSERT INTO completions(student_id, cycle_id, mapping_id, completed_on) VALUES(?,?,?,?)');
@@ -167,7 +167,8 @@ function seedDemo(db) {
         for (let n = 0; n < nStudents; n++) {
           serial += 1;
           const reg = `${String(admission).slice(2)}${code}${String(serial).padStart(3, '0')}`;
-          const sid = Number(insStu.run(reg, `${pick(FIRST)} ${pick(LAST)}`, d, classId, admission).lastInsertRowid);
+          const dob = `${admission - 18}-${String(1 + Math.floor(rnd() * 12)).padStart(2, '0')}-${String(1 + Math.floor(rnd() * 28)).padStart(2, '0')}`;
+          const sid = Number(insStu.run(reg, `${pick(FIRST)} ${pick(LAST)}`, d, classId, admission, dob).lastInsertRowid);
           // Leave the first three students in every class untouched so the demo can be tried.
           if (serial <= 3 || (sections.indexOf(sec) > 0 && n < 3)) continue;
           for (const m of mapIds) {
@@ -223,5 +224,7 @@ if (require.main === module) {
   const db = require('./db').open(file);
   seed(db, { demo: !process.argv.includes('--no-demo') });
   const c = (t) => db.get(`SELECT COUNT(*) n FROM ${t}`).n;
+  const demo = db.all("SELECT s.register_no, s.dob FROM students s WHERE NOT EXISTS (SELECT 1 FROM completions k WHERE k.student_id = s.id) ORDER BY s.register_no LIMIT 6");
+  if (demo.length) console.log('Demo student logins (register no. / date of birth):', demo.map((d) => `${d.register_no} / ${d.dob}`).join(', '));
   console.log(`Seeded ${file}: ${c('departments')} departments, ${c('classes')} classes, ${c('students')} students, ${c('faculty')} faculty, ${c('feedback')} feedback responses.`);
 }

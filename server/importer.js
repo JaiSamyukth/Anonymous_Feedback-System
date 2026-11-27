@@ -9,6 +9,7 @@
 const crypto = require('node:crypto');
 const ExcelJS = require('exceljs');
 const { HttpError, parseOrdinal, str } = require('./util');
+const { normalizeDob } = require('./db');
 
 const TYPES = {
   departments: {
@@ -38,10 +39,11 @@ const TYPES = {
       { key: 'year', label: 'Year', required: true, aliases: ['currentyear', 'academicyear', 'studyyear'] },
       { key: 'semester', label: 'Semester', required: true, aliases: ['sem'] },
       { key: 'section', label: 'Section', required: true, aliases: ['sec'] },
+      { key: 'dob', label: 'Date of Birth', required: true, aliases: ['dateofbirth', 'birthdate', 'dob', 'birthday'] },
       { key: 'admission_year', label: 'Admission Year', aliases: ['admissionyear', 'batch', 'yearofjoining'] },
       { key: 'status', label: 'Status', aliases: [] },
     ],
-    sample: [['24CSBS001', 'Student A', 'CSBS', 'III', 'V', 'A', '2024', 'active'], ['24CSBS002', 'Student B', 'CSBS', 'III', 'V', 'A', '2024', 'active']],
+    sample: [['24CSBS001', 'Student A', 'CSBS', 'III', 'V', 'A', '2006-04-15', '2024', 'active'], ['24CSBS002', 'Student B', 'CSBS', 'III', 'V', 'A', '15/08/2006', '2024', 'active']],
   },
   faculty: {
     title: 'Faculty',
@@ -244,8 +246,10 @@ function validate(db, type, mode, raw, scope) {
       if (adm !== null && !(Number.isInteger(adm) && adm > 1990 && adm < 2100)) errors.push(`Invalid admission year "${r.admission_year}"`);
       const status = str(r.status).toLowerCase() || 'active';
       if (!['active', 'inactive', 'graduated'].includes(status)) errors.push(`Invalid status "${r.status}"`);
+      const dob = normalizeDob(r.dob);
+      if (!dob) errors.push(str(r.dob) ? `Invalid date of birth "${str(r.dob)}" (use YYYY-MM-DD or DD/MM/YYYY)` : 'Date of birth is missing');
       key = reg;
-      values = { register_no: reg, name: str(r.name), department_id: d, class_id: classId, admission_year: adm, status };
+      values = { register_no: reg, name: str(r.name), department_id: d, class_id: classId, admission_year: adm, status, dob };
       existingId = reg ? db.get('SELECT id FROM students WHERE register_no = ?', reg)?.id || null : null;
     } else if (type === 'faculty') {
       const sid = str(r.staff_id).toUpperCase();

@@ -36,7 +36,9 @@ function sheet(wb, name, columns, rows, scoreKeys = ['average']) {
   return ws;
 }
 
-async function build(db, f, admin) {
+async function build(db, f, admin, { audience = 'admin' } = {}) {
+  const forFaculty = audience === 'faculty';
+  const minResponses = Number(db.getSetting('min_responses', '3'));
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Anonymous Faculty Feedback System';
   wb.created = new Date();
@@ -74,7 +76,8 @@ async function build(db, f, admin) {
     r.getCell(1).font = { bold: true };
   }
 
-  const g = (group) => reports.grouped(db, f, group).rows;
+  // Faculty exports never include groups small enough to single out students.
+  const g = (group) => reports.grouped(db, f, group).rows.filter((r) => !forFaculty || r.responses >= minResponses);
   const statCols = [
     { header: 'Responses', key: 'responses', width: 12 },
     { header: 'Average', key: 'average', width: 11, numFmt: '0.00' },
@@ -85,7 +88,7 @@ async function build(db, f, admin) {
     { header: '< 6 (Needs focus)', key: 'band_low', width: 17 },
   ];
 
-  sheet(wb, 'Faculty-wise', [
+  if (!forFaculty) sheet(wb, 'Faculty-wise', [
     { header: 'Faculty', key: 'label', width: 28 },
     { header: 'Staff ID', key: 'sub', width: 12 },
     { header: 'Designation', key: 'designation', width: 22 },
@@ -108,7 +111,7 @@ async function build(db, f, admin) {
     ...statCols,
   ], g('class'));
 
-  sheet(wb, 'Department-wise', [
+  if (!forFaculty) sheet(wb, 'Department-wise', [
     { header: 'Department', key: 'label', width: 14 },
     { header: 'Name', key: 'sub', width: 40 },
     ...statCols,
@@ -122,8 +125,26 @@ async function build(db, f, admin) {
     { header: 'Highest', key: 'max', width: 10 },
   ], g('question'));
 
+  sheet(wb, 'Year-wise', [{ header: 'Year', key: 'label', width: 14 }, ...statCols], g('year'));
   sheet(wb, 'Semester-wise', [{ header: 'Semester', key: 'label', width: 16 }, ...statCols], g('semester'));
   sheet(wb, 'Academic year-wise', [{ header: 'Academic year', key: 'label', width: 16 }, ...statCols], g('academic_year'));
+
+  // Entity × question matrices (same data as the Visualize heatmaps).
+  for (const [grp, title, labelHeader] of [['class', 'Class × Question', 'Class'], ['faculty', 'Faculty × Question', 'Faculty']]) {
+    if (forFaculty && grp === 'faculty') continue;
+    const m = reports.matrix(db, f, grp);
+    const rows = m.rows.filter((r) => !forFaculty || r.responses >= minResponses);
+    const qcols = m.questions.map((q) => ({ header: `Q${q.position} ${q.short || ''}`.trim(), key: `q${q.id}`, width: 12, numFmt: '0.00' }));
+    sheet(wb, title, [
+      { header: labelHeader, key: 'label', width: 34 },
+      { header: 'Responses', key: 'responses', width: 11 },
+      ...qcols,
+      { header: 'Overall', key: 'average', width: 10, numFmt: '0.00' },
+    ], rows.map((r) => ({ label: r.label, responses: r.responses, average: r.average, ...Object.fromEntries(m.questions.map((q) => [`q${q.id}`, r.questions[q.id] ?? null])) })),
+    ['average', ...m.questions.map((q) => `q${q.id}`)]);
+  }
+
+  if (forFaculty) return wb.xlsx.writeBuffer();
 
   // Anonymous individual responses (no identifiers of any kind).
   const resp = reports.responses(db, f, { limit: 500, offset: 0 });

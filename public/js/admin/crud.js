@@ -1,4 +1,4 @@
-import { h, clear, icon, api, qs, toast, modal, confirmDialog, debounce, fmtInt } from '../core.js';
+import { h, clear, icon, api, qs, toast, modal, confirmDialog, debounce, fmtInt, downloadCsv, printButton } from '../core.js';
 import { state, setTop, loadMeta, isSuper } from './shared.js';
 import { dataTable } from './table.js';
 
@@ -27,13 +27,22 @@ export function crudPage(el, cfg) {
     (cfg.toolbar || []).map((t) => h('select.select', { 'aria-label': t.label, onchange: (e) => { query[t.name] = e.target.value; load(); } }, h('option', { value: '' }, t.label), t.options().map(([v, l]) => h('option', { value: v }, l)))),
     bulkBar,
     h('span.grow'),
-    count);
+    count,
+    h('button.btn.btn-sm', { onclick: exportList, title: 'Download this list as CSV (opens in Excel)' }, icon('download'), 'Export'),
+    printButton());
   const body = h('div');
   el.append(cfg.intro || '', h('section.card', h('div.card-head', toolbar), body));
 
   let table;
+  let lastRows = [];
+  function exportList() {
+    const cols = cfg.columns.filter((c) => c.key && c.export !== false && c.label);
+    const plain = (c, r) => (c.export ? c.export(r) : typeof c.sort === 'function' ? c.sort(r) : r[c.key]);
+    downloadCsv(`${cfg.endpoint.split('/').pop()}-${new Date().toISOString().slice(0, 10)}.csv`, cols.map((c) => c.label), lastRows.map((r) => cols.map((c) => plain(c, r))));
+  }
   async function load() {
     const r = await api(`${cfg.endpoint}${qs({ ...query, limit: 2000 })}`);
+    lastRows = r.rows;
     count.textContent = `${fmtInt(r.total)} ${r.total === 1 ? cfg.noun : cfg.nounPlural || cfg.noun + 's'}`;
     const cols = [...cfg.columns];
     if (canWrite) {
@@ -92,8 +101,8 @@ export function crudPage(el, cfg) {
           h('option', { value: '' }, f.placeholder || `Select ${f.label.toLowerCase()}`),
           opts.map(([v, l]) => h('option', { value: v, selected: String(values[f.name] ?? '') === String(v) }, l)));
       } else if (f.type === 'switch') {
-        input = h('label.switch', h('input', { id, type: 'checkbox', checked: values[f.name] === undefined || values[f.name] === '' ? true : !!values[f.name], onchange: (e) => set(e.target.checked ? 1 : 0) }), h('span.track'), h('span', f.switchLabel || 'Active'));
-        if (values[f.name] === '' || values[f.name] === undefined) values[f.name] = 1;
+        if (values[f.name] === '' || values[f.name] === undefined || values[f.name] === null) values[f.name] = f.default ?? 1;
+        input = h('label.switch', h('input', { id, type: 'checkbox', checked: !!values[f.name], onchange: (e) => set(e.target.checked ? 1 : 0) }), h('span.track'), h('span', f.switchLabel || 'Active'));
         return h('div.field', h('span.label', f.label), input, f.hint ? h('span.hint', f.hint) : null);
       } else if (f.type === 'textarea') {
         input = h('textarea.textarea', { id, required: f.required, value: values[f.name] ?? '', oninput: (e) => set(e.target.value) });
@@ -107,6 +116,7 @@ export function crudPage(el, cfg) {
         f.hint ? h('span.hint', typeof f.hint === 'function' ? f.hint(row) : f.hint) : null);
     };
     const visible = cfg.fields.filter((f) => !f.hidden?.(values, row));
+    const shown = new Set(visible.map((f) => f.name));
     const grid = h('div.form-grid', visible.map((f) => (holders[f.name] = renderField(f))));
 
     const m = modal({
@@ -123,6 +133,7 @@ export function crudPage(el, cfg) {
       err.classList.add('hidden');
       const body = {};
       for (const f of cfg.fields) {
+        if (!shown.has(f.name)) continue;
         let v = values[f.name];
         if (typeof v === 'string') v = v.trim();
         if (v === '' && f.type !== 'switch') v = null;

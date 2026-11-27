@@ -1,6 +1,6 @@
 'use strict';
 const express = require('express');
-const { hashPassword } = require('./db');
+const { hashPassword, normalizeDob } = require('./db');
 const { HttpError, classLabel, str, int } = require('./util');
 const reports = require('./reports');
 const importer = require('./importer');
@@ -54,6 +54,7 @@ const ENTITIES = {
       department_id: { type: 'ref', ref: 'departments', required: true },
       class_id: { type: 'ref', ref: 'classes' },
       admission_year: { type: 'int', min: 1990, max: 2100 },
+      dob: { type: 'dob' },
       status: { type: 'enum', values: ['active', 'inactive', 'graduated'] },
     },
     list: `SELECT s.*, d.code AS department_code, c.year, c.semester, c.section
@@ -79,7 +80,8 @@ const ENTITIES = {
       email: { type: 'text', max: 120 },
       status: { type: 'enum', values: ['active', 'inactive'] },
     },
-    list: `SELECT f.*, d.code AS department_code,
+    list: `SELECT f.id, f.staff_id, f.name, f.department_id, f.designation, f.email, f.status, f.last_login,
+                  (f.password_hash IS NOT NULL AND f.must_change_password = 0) AS portal_ready, d.code AS department_code,
                   (SELECT COUNT(*) FROM mappings m WHERE m.faculty_id = f.id) AS mappings
              FROM faculty f JOIN departments d ON d.id = f.department_id`,
     dept: 'f.department_id',
@@ -201,6 +203,9 @@ function coerce(def, body, partial) {
       v = int(v, f.type === 'int' ? { min: f.min, max: f.max } : { min: 1 });
       if (Number.isNaN(v)) throw new HttpError(400, `${label(name)} is not valid${f.min !== undefined ? ` (${f.min}–${f.max})` : ''}.`);
       if (v === null && f.required) throw new HttpError(400, `${label(name)} is required.`);
+    } else if (f.type === 'dob') {
+      v = normalizeDob(v);
+      if (v === undefined) throw new HttpError(400, 'Date of birth is not a valid date.');
     } else if (f.type === 'bool') {
       v = v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0;
     }
@@ -301,6 +306,11 @@ module.exports = function adminRouter(ctx) {
         values.password_hash = hashPassword(pw);
         if (values.active === undefined) values.active = 1;
       }
+      if (name === 'faculty' && req.body?.password) {
+        if (String(req.body.password).length < 8) throw new HttpError(400, 'Portal password must be at least 8 characters.');
+        values.password_hash = hashPassword(String(req.body.password));
+        values.must_change_password = 1;
+      }
       checkScope(req, values, null);
       checkRefs(values);
       def.validate?.(db, values);
@@ -324,6 +334,14 @@ module.exports = function adminRouter(ctx) {
         }
         if (existing.id === req.admin.id && (values.active === 0 || values.role === 'dept_admin')) {
           throw new HttpError(400, 'You cannot deactivate or demote your own account.');
+        }
+      }
+      if (name === 'faculty') {
+        if (req.body?.reset_password) { values.password_hash = null; values.must_change_password = 1; }
+        else if (req.body?.password) {
+          if (String(req.body.password).length < 8) throw new HttpError(400, 'Portal password must be at least 8 characters.');
+          values.password_hash = hashPassword(String(req.body.password));
+          values.must_change_password = 1;
         }
       }
       checkScope(req, values, existing);
@@ -414,6 +432,7 @@ module.exports = function adminRouter(ctx) {
 
   r.get('/dashboard', (req, res) => res.json(reports.dashboard(db, filtersOf(req))));
   r.get('/report', (req, res) => res.json(reports.grouped(db, filtersOf(req), str(req.query.group) || 'faculty')));
+  r.get('/matrix', (req, res) => res.json(reports.matrix(db, filtersOf(req), str(req.query.group) || 'class')));
   r.get('/report/faculty/:id', (req, res) => {
     const f = filtersOf(req);
     const fac = db.get('SELECT f.*, d.code AS department_code FROM faculty f JOIN departments d ON d.id = f.department_id WHERE f.id = ?', Number(req.params.id));

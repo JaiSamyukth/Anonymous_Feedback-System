@@ -2,9 +2,10 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const express = require('express');
-const { verifyPassword, today } = require('./db');
+const { verifyPassword, today, normalizeDob } = require('./db');
 const { HttpError, classLabel, str, rateLimiter } = require('./util');
 const adminRouter = require('./admin');
+const facultyRouter = require('./faculty');
 
 const SESSION_COOKIE = 'afs_session';
 const SESSION_HOURS = 8;
@@ -30,6 +31,7 @@ function createApp(db, { secureCookies = false } = {}) {
 
   const secret = Buffer.from(db.getSetting('secret'), 'hex');
   const ctx = { db, secret };
+  ctx.parseCookies = (req) => parseCookies(req);
 
   /* ---------------------------------------------------------------- helpers */
 
@@ -126,21 +128,42 @@ function createApp(db, { secureCookies = false } = {}) {
     res.json({ class: { ...cls, label: classLabel(cls) }, forms: formsForClass(cls.id, cycle.id) });
   });
 
+  // Per-register-number lockout on top of the per-IP rate limit: dates of birth are guessable.
+  const failures = new Map(); // register_no → { count, until }
+  const LOCK_AFTER = 5;
+  const LOCK_MS = 15 * 60e3;
+
   pub.post('/verify', rateLimiter({ windowMs: 60e3, max: 12 }), (req, res) => {
     if (db.getSetting('require_verification') !== '1') throw new HttpError(400, 'Verification is not enabled.');
     const cycle = activeCycle();
     if (!cycle) throw new HttpError(409, 'No feedback cycle is open right now. Please check back later.');
     const reg = str(req.body?.register_no).toUpperCase();
+    const dob = normalizeDob(req.body?.dob);
     if (!/^[A-Z0-9/-]{3,30}$/.test(reg)) throw new HttpError(400, 'Please enter a valid register number.');
+    if (!dob) throw new HttpError(400, 'Please enter your date of birth.');
+
+    const f = failures.get(reg);
+    if (f && f.until > Date.now()) {
+      throw new HttpError(429, `Too many incorrect attempts. Please try again in ${Math.ceil((f.until - Date.now()) / 60e3)} minutes.`);
+    }
     const st = db.get('SELECT * FROM students WHERE register_no = ?', reg);
-    if (!st) throw new HttpError(404, 'We could not find that register number. Check it and try again, or contact your class advisor.');
+    // One generic message for "unknown number" and "wrong date" so register numbers can't be probed.
+    if (!st || !st.dob || st.dob !== dob) {
+      const expired = f && f.until && f.until <= Date.now();
+      const n = (f && !expired ? f.count : 0) + 1;
+      failures.set(reg, { count: n, until: n >= LOCK_AFTER ? Date.now() + LOCK_MS : 0 });
+      if (failures.size > 10000) failures.clear();
+      if (st && !st.dob) throw new HttpError(409, 'Your date of birth is not on record yet. Please contact your department office.');
+      throw new HttpError(401, `The register number or date of birth is incorrect.${n >= LOCK_AFTER - 2 && n < LOCK_AFTER ? ` ${LOCK_AFTER - n} attempt(s) left before a 15-minute lock.` : ''}`);
+    }
+    failures.delete(reg);
     if (st.status !== 'active') throw new HttpError(403, `This register number is marked as ${st.status}. Contact your department office.`);
     const cls = st.class_id ? classInfo(st.class_id) : null;
     if (!cls || !cls.active) throw new HttpError(409, 'You are not assigned to an active class yet. Contact your department office.');
+    // No name or register number is sent back: the portal never displays personal data.
     res.json({
       token: signStudentToken(st.id, cycle.id),
-      student: { name: st.name, register_no: st.register_no },
-      class: { ...cls, label: classLabel(cls) },
+      class: { id: cls.id, department_code: cls.department_code, department_name: cls.department_name, year: cls.year, semester: cls.semester, section: cls.section, label: classLabel(cls) },
       forms: formsForClass(cls.id, cycle.id, st.id),
     });
   });
@@ -288,11 +311,16 @@ function createApp(db, { secureCookies = false } = {}) {
     adminRouter(ctx),
   );
 
+  /* --------------------------------------------------------------- faculty */
+
+  app.use('/api/faculty', facultyRouter(ctx, { secureCookies }));
+
   /* ---------------------------------------------------------------- static */
 
   const pub_dir = path.join(__dirname, '..', 'public');
   app.use(express.static(pub_dir, { extensions: ['html'] }));
   app.get('/admin', (req, res) => res.sendFile(path.join(pub_dir, 'admin.html')));
+  app.get('/faculty', (req, res) => res.sendFile(path.join(pub_dir, 'faculty.html')));
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
